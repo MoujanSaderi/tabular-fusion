@@ -452,6 +452,17 @@ class Base3DResNet(pl.LightningModule):
             if auc > self.best_val_pirads_auc:
                 self.best_val_pirads_auc = auc
 
+            # configure_optimizers' ReduceLROnPlateau monitors val_loss, but the
+            # validation steps only log it when log_run is True, so with
+            # log_run False training crashed after the first validation epoch.
+            # Log the epoch-level unweighted loss here in that case.
+            if not self.log_configs["log_run"]:
+                self.log(
+                    "val_loss",
+                    self.unweighted_loss(val_preds, val_targets.long()),
+                    on_epoch=True,
+                )
+
             # log metrics
             self.log("val_auc", auc, prog_bar=True, on_epoch=True)
             self.log("val_precision", precision, prog_bar=True, on_epoch=True)
