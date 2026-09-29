@@ -5,7 +5,14 @@ Early fusion version — uses lakshita_earlyfusion.
 """
 import torch
 
-from src.models.ResNet3D.lakshita_earlyfusion import Base3DResNet
+try:
+    from src.models.ResNet3D.lakshita_earlyfusion import Base3DResNet
+except ModuleNotFoundError:
+    # lakshita_earlyfusion.py lives in the lab's shared src/ and was never
+    # committed to this repo. Base3DResNet is only needed by generate_resnet3d()
+    # for single-series configs (not used by train.py), so fall back to the
+    # plain base class rather than making the whole module unimportable.
+    from src.models.ResNet3D.base_3Dresnet import Base3DResNet
 from src.models.ResNet3D.branched_3Dresnet import DualSeriesModel
 from src.models.ResNet3D.branched_3Dresnet import QuadSeriesModel
 from src.models.ResNet3D.branched_3Dresnet import TriSeriesModel
