@@ -56,7 +56,8 @@ class ExamH5Dataset(Dataset):
         axt2_key="axt2",
         dwi_suffices=None,
         dce_dirs=None,
-        tabular_csv = None
+        tabular_csv = None,
+        load_volumes=True,
     ):
         """
         metadata_csv: path to csv containing labels and metadata for each
@@ -74,6 +75,11 @@ class ExamH5Dataset(Dataset):
         mask_prostate (bool): Indicates whether or not to mask the prostate
         device: device to load tensors on
         normalize (bool): Apply z-score normalization to each volume.
+        tabular_csv (str | Path, optional): CSV of clinical features, one row
+            per AccessionNumber (plus a 'split' column, which is dropped).
+        load_volumes (bool): If False, skip locating and reading the H5/MRI
+            volumes entirely and return empty volume dicts. For tabular-only
+            models (e.g. mlpclinical.ClinicalMLPModel) that never use them.
         """
         super().__init__()
         self.series = series
@@ -93,12 +99,20 @@ class ExamH5Dataset(Dataset):
         self.num_variants = len(self.dwi_suffices)
         self.dce_dirs = [Path(d) for d in dce_dirs] if dce_dirs is not None else []
         self._dce_lookup = {}
+        self.load_volumes = load_volumes
         self.tabular_features = {}
+        # Width of the clinical feature vector, taken from the CSV itself so the
+        # zero-filled fallback for exams missing from it always matches the real
+        # rows (it was hardcoded to 11 while the CSV has 37 features, which made
+        # batch collation crash whenever an exam had no clinical row).
+        self.num_tabular_features = 0
         if tabular_csv is not None:
             tab_df = pd.read_csv(tabular_csv)
+            feature_cols = tab_df.columns.drop(["AccessionNumber", "split"])
+            self.num_tabular_features = len(feature_cols)
             for _, row in tab_df.iterrows():
                 acc = int(row["AccessionNumber"])
-                features = row.drop(["AccessionNumber", "split"]).values.astype(float)
+                features = row[feature_cols].values.astype(float)
                 self.tabular_features[acc] = features
 
 
@@ -183,6 +197,17 @@ class ExamH5Dataset(Dataset):
 
         self.df_metadata = df_metadata.reset_index(drop=True) #Saves the final cleaned dataframe and renumbers rows 0, 1, 2... cleanly after all the filtering.
 
+        if tabular_csv is not None:
+            n_missing = (
+                ~self.df_metadata["AccessionNumber"].astype(int).isin(self.tabular_features)
+            ).sum()
+            if n_missing:
+                print(
+                    f"[ExamH5Dataset:{mode}] {n_missing}/{len(self.df_metadata)} exams "
+                    f"have no row in {tabular_csv}; their clinical features will be "
+                    f"all zeros."
+                )
+
         self.pirads = self.df_metadata["maxPIRADS"].tolist() * self.num_variants
         self.pirads_labels = (
             self.df_metadata["pirads_target"].tolist() * self.num_variants
@@ -232,8 +257,28 @@ class ExamH5Dataset(Dataset):
         max_pirads_from_csv = int(self.df_metadata.iloc[case_index]["maxPIRADS"])
         gleason_target = int(self.df_metadata.iloc[case_index]["gleason_target"])
         max_gleason_score = int(self.df_metadata.iloc[case_index]["MaxGleasonScore"])
+        target = int(self.df_metadata.iloc[case_index]["target"]) #Grab the label for this exam — 0 or 1. This is the ground truth the model is trying to predict.
 
-        
+        tabular_features = self.tabular_features.get(accession_number)
+        if tabular_features is not None:
+            tabular_tensor = torch.FloatTensor(tabular_features)
+        else:
+            tabular_tensor = torch.zeros(self.num_tabular_features, dtype=torch.float32)
+
+        if not self.load_volumes:
+            # Tabular-only model: don't locate, open or read any H5 file.
+            return {
+                "volume_data_dict": {},
+                "unnorm_volume_data_dict": {},
+                "label": target,
+                "gleason_label": gleason_target,
+                "maxPIRADS": max_pirads_from_csv,
+                "MaxGleasonScore": max_gleason_score,
+                "AccessionNumber": accession_number,
+                "PatientID": patient_id,
+                "location": "",
+                "TabularFeatures": tabular_tensor,
+            }
 
         path = self._find_existing_h5(accession_number, self.data_dirs)
         if path is None:
@@ -261,15 +306,6 @@ class ExamH5Dataset(Dataset):
                 sigma = random.uniform( #If augmentation is set to noise mode, pick a random noise level between the min and max values in the config. Your config has augment: none so this is skipped.
                     self.noise_sigma_range[0], self.noise_sigma_range[1]
                 )
-            
-            tabular_features = self.tabular_features.get(accession_number)
-            if tabular_features is not None:
-                tabular_tensor = torch.FloatTensor(tabular_features)
-            else:
-                tabular_tensor = torch.zeros(11, dtype = torch.float32)
-
-
-            target = int(self.df_metadata.iloc[case_index]["target"]) #Grab the label for this exam — 0 or 1. This is the ground truth the model is trying to predict.
 
             vol_dict = {} #Empty dictionary that will store the raw loaded volumes before processing.
             variant_suffix = self.dwi_suffices[variant_index]
@@ -343,11 +379,11 @@ class ExamH5Dataset(Dataset):
             "TabularFeatures": tabular_tensor
             
         }
-
-"""
- Returns the total size of the dataset.Returns the total size of the dataset. df_metadata.shape[0] is the number of rows (exams) in the table. Multiplied by num_variants which is 1 for you, so it just returns the number of exams. The dataloader uses this to know when it's gone through the whole dataset once (one epoch).
-"""
-def __len__(self):
+    def __len__(self):
+        # Total size of the dataset: number of exams (rows) times num_variants
+        # (1 unless dwi_suffices lists several DWI variants). The DataLoader uses
+        # this to know when an epoch is done. (Previously this sat at module
+        # level, outside the class, so len(dataset) raised TypeError.)
         return self.df_metadata.shape[0] * self.num_variants
 
 
