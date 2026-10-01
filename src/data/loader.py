@@ -139,7 +139,7 @@ class ExamH5Dataset(Dataset):
                 df_metadata["ordinal_label"].apply(lambda x: 1 if x >= 2 else 0)
             ) #check if ordinal label exists. If it does, add a tstage_target column ,  1 if the ordinal label is 2 or higher (meaning the cancer has spread outside the prostate), 0 otherwise.
 
-        if self.target == "gleason" and mode in ["train", "val"]: # if the target is gleason and we are in training or validation mode
+        if self.target == "gleason":
             pos = df_metadata["MaxGleasonScore"] > 6  #creates a variable called pos that holds T/F values based on if the gleason score is greater than 6 or not
             neg_gs6 = df_metadata["MaxGleasonScore"] == 6 #T/F if maxgleasonscore is 6 or not
             neg_pirads = (df_metadata["maxPIRADS"].isin([1, 2])) & (
