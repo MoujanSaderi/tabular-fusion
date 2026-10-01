@@ -447,6 +447,7 @@ class Base3DResNet(pl.LightningModule):
                 plot_pirads_breakdown=self.log_configs["plot_pirads_breakdown"],
                 pirads=self.log_configs["val_pirads"],
                 mode="val",
+                log_dir=self.log_configs.get("log_dir", "./logs"),
             )
 
             if auc > self.best_val_pirads_auc:
@@ -501,6 +502,7 @@ class Base3DResNet(pl.LightningModule):
                     plot_pirads_breakdown=self.log_configs["plot_pirads_breakdown"],
                     pirads=self.log_configs["val_pirads"],
                     mode="val",
+                    log_dir=self.log_configs.get("log_dir", "./logs"),
                 )
 
                 if auc > self.best_val_pirads_auc:
@@ -539,6 +541,7 @@ class Base3DResNet(pl.LightningModule):
                     plot_pirads_breakdown=self.log_configs["plot_pirads_breakdown"],
                     pirads=self.log_configs["val_pirads"],
                     mode="val",
+                    log_dir=self.log_configs.get("log_dir", "./logs"),
                 )
                 if auc > self.best_val_pirads_auc:
                     self.best_val_pirads_auc = auc
@@ -600,6 +603,7 @@ class Base3DResNet(pl.LightningModule):
             plot_pirads_breakdown=self.log_configs["plot_pirads_breakdown"],
             pirads=self.log_configs["val_pirads"],
             mode="test",
+            log_dir=self.log_configs.get("log_dir", "./logs"),
         )
 
         # log metrics

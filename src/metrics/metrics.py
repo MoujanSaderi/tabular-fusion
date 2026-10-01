@@ -124,6 +124,7 @@ def epoch_end_metrics(
     plot_confusion_matrix=False,
     plot_pirads_breakdown=False,
     mode="train",
+    log_dir="./logs",
 ):
     """Compute metrics at the end of an epoch.
 
@@ -181,7 +182,7 @@ def epoch_end_metrics(
                 opt_threshold,
                 balanced_acc,
                 auc,
-                f"./logs/roc/roc_curve_{epoch_count}.png",
+                f"{log_dir}/roc/roc_curve_{epoch_count}.png",
             )
 
         if plot_confusion_matrix:
@@ -189,7 +190,7 @@ def epoch_end_metrics(
             cm = confusion_matrix(targets.cpu().numpy(), preds_one_hot)
             disp = ConfusionMatrixDisplay(confusion_matrix=cm)
             disp.plot()
-            plt.savefig(f"./logs/cm/confusion_matrix_{epoch_count}.png")
+            plt.savefig(f"{log_dir}/cm/confusion_matrix_{epoch_count}.png")
 
         if plot_pirads_breakdown:
             # plot the PIRADS breakdown of TP, FP, TN, FN
@@ -198,7 +199,7 @@ def epoch_end_metrics(
                 targets.cpu().numpy(),
                 np.array(pirads),
                 epoch_count,
-                save_path=f"./logs/pirads_breakdown/pirads_{epoch_count}.png",
+                save_path=f"{log_dir}/pirads_breakdown/pirads_{epoch_count}.png",
             )
 
     return auc, opt_threshold, precision, recall, f1

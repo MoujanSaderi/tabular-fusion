@@ -249,7 +249,11 @@ def main():
     train_loader = build_dataloader(train_dataset, config, shuffle=True)
     val_loader = build_dataloader(val_dataset, config, shuffle=False)
 
-    config["logging"]["val_pirads"] = [val_dataset.pirads]
+    # Flat list, one maxPIRADS per validation exam in loader order (val_loader
+    # isn't shuffled, so it lines up with the concatenated val predictions).
+    # It used to be wrapped in an extra list, which made np.array(pirads) shape
+    # (1, N) and crashed plot_pirads_cm with an IndexError.
+    config["logging"]["val_pirads"] = val_dataset.pirads
 
     model = build_model(config)
 
@@ -263,6 +267,16 @@ def main():
     # regardless of debugging.debug, so trainer.test() would otherwise crash
     # after a full training run if the directory doesn't exist yet.
     Path(config["debugging"]["preds_dir"]).mkdir(parents=True, exist_ok=True)
+
+    log_dir = Path(config["debugging"]["preds_dir"]) / "logs"
+    config["logging"]["log_dir"] = str(log_dir)
+    for flag, subdir in (
+        ("plot_roc", "roc"),
+        ("plot_confusion_matrix", "cm"),
+        ("plot_pirads_breakdown", "pirads_breakdown"),
+    ):
+        if config["logging"].get(flag):
+            (log_dir / subdir).mkdir(parents=True, exist_ok=True)
 
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
         monitor="best_val_pirads_auc",
