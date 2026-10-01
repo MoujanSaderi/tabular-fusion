@@ -25,7 +25,7 @@ class ClinicalMLPModel(Base3DResNet):
 
         self.dropout = nn.Dropout(p=config["hyperparameters"]["dropout"])
         self.mlp = nn.Sequential(
-            nn.Linear(36, 128),
+            nn.Linear(config["data"]["tabular_dims"], 128),
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.ReLU(),

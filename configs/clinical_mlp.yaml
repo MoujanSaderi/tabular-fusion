@@ -46,6 +46,7 @@ data:
   mask_prostate: False
   normalize: true
   tabular_csv: /gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
+  tabular_dims: 36
 
 hyperparameters:
   learning_rate: 0.0001

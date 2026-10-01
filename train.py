@@ -68,9 +68,6 @@ CLINICAL_ENCODER_KEY_MAP = {
 }
 CLINICAL_ENCODER_FILENAME = "clinical_encoder.pt"
 
-# Input width of ClinicalMLPModel and every FrozenClinicalEncoder (nn.Linear(37, ...)).
-CLINICAL_FEATURE_DIM = 36
-
 SERIES_NAME_TO_ENUM = {
     "axt2": SeriesType.AXT2,
     "adc": SeriesType.ADC,
@@ -234,11 +231,11 @@ def main():
     val_dataset = build_dataset(config["paths"]["valid_csv"], config, "val", series)
 
     n_features = train_dataset.num_tabular_features
-    if config["data"].get("tabular_csv") and n_features != CLINICAL_FEATURE_DIM:
+    if config["data"].get("tabular_csv") and n_features != config["data"]["tabular_dims"]:
         raise ValueError(
             f"{config['data']['tabular_csv']} has {n_features} feature columns "
             f"(excluding AccessionNumber and split), but the clinical MLP/encoders "
-            f"take {CLINICAL_FEATURE_DIM} inputs."
+            f"take {config['data']['tabular_dims']} inputs."
         )
 
     if config["training"].get("imbalance_strategy") == "weighted_loss" and not config[
