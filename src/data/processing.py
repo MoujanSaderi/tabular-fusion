@@ -3,7 +3,7 @@ from scipy.ndimage import gaussian_filter
 from scipy.ndimage import rotate
 from scipy.ndimage import shift
 from scipy.ndimage import zoom
-from scipy.signal import tukey
+from scipy.signal.windows import tukey
 from src.utils.data_enums import SeriesType
 import random
 
