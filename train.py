@@ -69,7 +69,7 @@ CLINICAL_ENCODER_KEY_MAP = {
 CLINICAL_ENCODER_FILENAME = "clinical_encoder.pt"
 
 # Input width of ClinicalMLPModel and every FrozenClinicalEncoder (nn.Linear(37, ...)).
-CLINICAL_FEATURE_DIM = 37
+CLINICAL_FEATURE_DIM = 36
 
 SERIES_NAME_TO_ENUM = {
     "axt2": SeriesType.AXT2,

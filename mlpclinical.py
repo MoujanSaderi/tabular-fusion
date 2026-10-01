@@ -1,5 +1,5 @@
 """
-Tabular-only clinical MLP (37 -> 128 -> 64 -> 2), restored from commit 2db1e00.
+Tabular-only clinical MLP (36 -> 128 -> 64 -> 2), restored from commit 2db1e00.
 
 Trained via `python train.py --config configs/clinical_mlp.yaml`. Its first two
 layers (mlp.0, mlp.2) are what the frozen clinical encoders in aug11cbam.py,
@@ -25,7 +25,7 @@ class ClinicalMLPModel(Base3DResNet):
 
         self.dropout = nn.Dropout(p=config["hyperparameters"]["dropout"])
         self.mlp = nn.Sequential(
-            nn.Linear(37, 128),
+            nn.Linear(36, 128),
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.ReLU(),
