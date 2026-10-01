@@ -108,6 +108,7 @@ class ExamH5Dataset(Dataset):
         self.num_tabular_features = 0
         if tabular_csv is not None:
             tab_df = pd.read_csv(tabular_csv)
+            tab_df = tab_df.replace([np.inf, -np.inf], np.nan).fillna(0)
             feature_cols = tab_df.columns.drop(["AccessionNumber", "split", "PatientID", "csPCa", "MaxGradeGroup", "MaxGleasonScore"])
             self.num_tabular_features = len(feature_cols)
             for _, row in tab_df.iterrows():

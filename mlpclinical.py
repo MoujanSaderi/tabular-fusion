@@ -6,6 +6,7 @@ layers (mlp.0, mlp.2) are what the frozen clinical encoders in aug11cbam.py,
 aug11earlyscalar.py and aug11latefusionflat.py load as `fc1` / `fc2` through
 model_weights.clinical_ckpt; train.py exports them in that format after training.
 """
+import torch
 import torch.nn as nn
 
 from src.models.ResNet3D.base_3Dresnet import Base3DResNet
@@ -36,6 +37,13 @@ class ClinicalMLPModel(Base3DResNet):
         return self.mlp(tabular_features)
 
     def training_step(self, batch, batch_idx):
+        if batch_idx == 0:  # check only the first batch
+            for k, v in batch.items():
+                if torch.is_tensor(v) and v.is_floating_point():
+                    print(k, tuple(v.shape),
+                        "nan:", torch.isnan(v).sum().item(),
+                        "inf:", torch.isinf(v).sum().item(),
+                        "min/max:", v.nan_to_num().min().item(), v.nan_to_num().max().item())
         tabular = batch["tabular_features"]
         target = batch["label"]
         logits = self(batch["volume_data_dict"], tabular)
