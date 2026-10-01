@@ -1,0 +1,79 @@
+# Config for mlpclinical.ClinicalMLPModel (tabular-only clinical MLP).
+# Run with: python train.py --config configs/clinical_mlp.yaml
+#
+# Trains on the 37 clinical features only. When training finishes, train.py
+# converts the best checkpoint into <save_weights_dir>/clinical_encoder.pt,
+# which is what model_weights.clinical_ckpt in cbam.yaml / earlyscalar.yaml /
+# latefusion_flat.yaml expects.
+#
+# Splits, mode and pirads_cutoff deliberately match the fusion configs, so the
+# MLP trains and validates on exactly the same exams and labels. For this model
+# the loader never locates or reads the H5/MRI volumes (load_volumes=False), so
+# data_dirs and series are unused here; they're kept only to mirror the others.
+# tabular_csv must have 37 feature columns (plus AccessionNumber and split).
+#
+# NOTE: update save_weights_dir / preds_dir to a directory you can write to.
+
+paths:
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_April4_testpatient_removed_relabeled.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_April4_testpatient_removed_relabeled.csv
+  test_csv: null
+  data_dirs:
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
+  dce_dirs: []
+  extra_valid_csv: null
+
+model:
+  model: clinical_mlp
+
+training:
+  gpu: True
+  epochs: 100
+  batch_size: 16
+  num_workers: 4
+  seed: 42
+  imbalance_strategy: weighted_loss
+  class_weights: null # computed automatically from the training set
+  stack_adc_b1500: True
+  mode: cspca # pirads | gleason | tstage | cspca
+
+data:
+  series: ["axt2", "adc", "b1500"]
+  augment: none
+  noise_sigma_range: [0.0, 0.0]
+  downsample_factors: [1]
+  pirads_cutoff: 3
+  mask_prostate: False
+  normalize: true
+  tabular_csv: /gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
+
+hyperparameters:
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  max_patience: 20
+  factor: 0.3
+  dropout: 0.2
+
+model_weights:
+  save_weights: True
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp
+  # No imaging backbone, so there is nothing to load; train.py ignores
+  # model_ckpt for clinical_mlp even if these are set.
+  load_weights: False
+  model_ckpt: null
+  disable_gradient: False
+  clinical_ckpt: null
+
+logging:
+  log_run: True
+  project_name: lakshita_multimodal
+  run_name: clinical_mlp_v1
+  plot_roc: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963355-clinical_mlp_v1-2026-09-30.log 
+  plot_confusion_matrix: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963721-clinical_mlp_v1-2026-09-30.log
+  plot_pirads_breakdown: True
+
+debugging:
+  debug: False
+  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp
+  max_test_volumes: -1
+  compute_gradcam: False
