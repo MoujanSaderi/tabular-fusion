@@ -45,8 +45,8 @@ data:
   pirads_cutoff: 3
   mask_prostate: False
   normalize: true
-  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-02-tabular-data-no-lesion-level.csv' # configs/clinical_mlp.yaml #/gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
-  tabular_dims: 12 #36
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-02-tabular-data-some-lesion-level.csv' # configs/clinical_mlp.yaml #/gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
+  tabular_dims: 16
 
 hyperparameters:
   learning_rate: 0.0001
@@ -68,7 +68,7 @@ model_weights:
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: clinical_mlp_no_lesion_info_wlog_v1
+  run_name: clinical_mlp_some_lesion_info_wlog_v1
   plot_roc: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963355-clinical_mlp_v1-2026-09-30.log 
   plot_confusion_matrix: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963721-clinical_mlp_v1-2026-09-30.log
   plot_pirads_breakdown: True
