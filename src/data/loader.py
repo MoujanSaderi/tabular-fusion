@@ -58,6 +58,7 @@ class ExamH5Dataset(Dataset):
         dce_dirs=None,
         tabular_csv = None,
         load_volumes=True,
+        train_csv_path=None,
     ):
         """
         metadata_csv: path to csv containing labels and metadata for each
@@ -108,15 +109,29 @@ class ExamH5Dataset(Dataset):
         self.num_tabular_features = 0
         if tabular_csv is not None:
             tab_df = pd.read_csv(tabular_csv)
-            tab_df = tab_df.replace([np.inf, -np.inf], np.nan).fillna(0)
-            # feature_cols = tab_df.columns.drop(["AccessionNumber", "split", "PatientID", "csPCa", "MaxGradeGroup", "MaxGleasonScore", "lesion_has_epe"])
+            tab_df = tab_df.replace([np.inf, -np.inf], np.nan)
+            
             feature_cols = tab_df.columns.drop(["AccessionNumber"])
+
+            # Standardize continuous features using training-split statistics only.
+            # Binary columns (2 or fewer distinct values) are left as 0/1.
+            if train_csv_path is not None:
+                train_acc = set(pd.read_csv(train_csv_path)["AccessionNumber"].astype(int))
+                train_rows = tab_df["AccessionNumber"].astype(int).isin(train_acc)
+                assert train_rows.any(), "No tabular rows match train_csv accessions"
+                cont_cols = [c for c in feature_cols if tab_df[c].nunique(dropna=True) > 2]
+                mean = tab_df.loc[train_rows, cont_cols].mean()
+                std = tab_df.loc[train_rows, cont_cols].std().replace(0, 1).fillna(1)
+                tab_df[cont_cols] = (tab_df[cont_cols] - mean) / std
+
+            # Missing values become 0, which is the training mean for standardized columns.
+            tab_df[feature_cols] = tab_df[feature_cols].fillna(0)
+
             self.num_tabular_features = len(feature_cols)
             for _, row in tab_df.iterrows():
                 acc = int(row["AccessionNumber"])
                 features = row[feature_cols].values.astype(float)
                 self.tabular_features[acc] = features
-
 
         if not self.data_dirs:
             raise ValueError("At least one data directory must be provided.")

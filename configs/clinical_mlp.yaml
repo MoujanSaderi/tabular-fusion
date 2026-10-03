@@ -68,7 +68,7 @@ model_weights:
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: clinical_mlp_some_lesion_info_wlog_v1
+  run_name: clinical_mlp_norm_v1
   plot_roc: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963355-clinical_mlp_v1-2026-09-30.log 
   plot_confusion_matrix: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963721-clinical_mlp_v1-2026-09-30.log
   plot_pirads_breakdown: True

@@ -115,6 +115,7 @@ def build_dataset(csv_path, config, mode, series):
         tabular_csv=data_cfg.get("tabular_csv"),
         # Tabular-only models never look at the MRI volumes, so don't read them.
         load_volumes=config["model"]["model"].lower() not in TABULAR_ONLY_MODELS,
+        train_csv_path=config["paths"]["train_csv"],
     )
 
 
