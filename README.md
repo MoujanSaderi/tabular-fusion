@@ -11,10 +11,13 @@ location, etc.) using a frozen ResNet3D imaging backbone.
 | CBAM (channel + spatial clinical attention) | `aug11cbam.py` | `configs/cbam.yaml` | `cbam.md` |
 | Early-scalar clinical attention | `aug11earlyscalar.py` | `configs/earlyscalar.yaml` | `earlyscalar.md` |
 | Late fusion (flat clinical encoder) | `aug11latefusionflat.py` | `configs/latefusion_flat.yaml` | `latefusion.md` |
+| DAFT (clinical affine transform in last layer4 block) | `daftfusion.py` | `configs/daft.yaml` | docstring in `daftfusion.py` |
+| DAFT + late fusion, initialized from the baseline | `daftfusion.py` | `configs/daft_late.yaml` | docstring in `daftfusion.py` |
+| DAFT + late fusion, initialized from the late-only model | `daftfusion.py` | `configs/daft_late_from_latefusion.yaml` | docstring in `daftfusion.py` |
 | Probability-level late fusion | `late_fusion.py` | CLI args (see below) | — |
 
-The first three fuse imaging + clinical *embeddings* inside one joint
-network, trained via `train.py`; each has a `.md` writeup (with matching
+The first six fuse imaging + clinical *embeddings* inside one joint
+network, trained via `train.py`; the first three each have a `.md` writeup (with matching
 `.png` diagram) explaining the design. Probability-level late fusion is
 different — it blends the output *probabilities* of two independently
 trained models instead — so it runs as its own script, covered further down.
@@ -45,6 +48,9 @@ Clinical features come from a separate CSV, keyed by `AccessionNumber`, with
 python train.py --config configs/cbam.yaml
 python train.py --config configs/earlyscalar.yaml
 python train.py --config configs/latefusion_flat.yaml
+python train.py --config configs/daft.yaml
+python train.py --config configs/daft_late.yaml
+python train.py --config configs/daft_late_from_latefusion.yaml  # set model_ckpt first
 ```
 
 Before running, check each config for:
