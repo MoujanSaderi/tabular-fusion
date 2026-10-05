@@ -8,6 +8,9 @@ clinical encoder:
     latefusion_flat -> aug11latefusionflat.LateFusionFlatFrozen
     latefusion_flat_llrd -> aug11latefusionflat.LateFusionFlatLLRD
                         (both encoders unfrozen, layer-wise LR decay)
+    daft            -> daftfusion.DAFTFusionModel
+                        (DAFT block in the last layer4 bottleneck,
+                        optionally plus late fusion; see daft.* config)
     clinical_mlp    -> mlpclinical.ClinicalMLPModel
 
 All four subclass src.models.ResNet3D.base_3Dresnet.Base3DResNet. The fusion
@@ -46,6 +49,7 @@ from aug11earlyscalar import TriSeriesModelFrozen as EarlyScalarModel
 from aug11latefusionflat import LateFusionFlatFrozen as LateFusionFlatModel
 from aug11latefusionflat import LateFusionFlatLLRD
 from mlpclinical import ClinicalMLPModel
+from daftfusion import DAFTFusionModel
 
 
 MODEL_REGISTRY = {
@@ -54,6 +58,7 @@ MODEL_REGISTRY = {
     "latefusion_flat": LateFusionFlatModel,
     "latefusion_flat_llrd": LateFusionFlatLLRD,
     "clinical_mlp": ClinicalMLPModel,
+    "daft": DAFTFusionModel,
 }
 
 # Models that never look at the imaging volumes, so an imaging checkpoint
@@ -156,14 +161,19 @@ def build_model(config):
             weights_cfg["model_ckpt"],
             map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         )
-        # Non-matching keys (the attention/clinical-fusion layers, which the
-        # checkpoint - trained on the plain baseline branched model - doesn't
-        # have) are silently skipped, leaving them at their random init.
-        model = load_saved_resnet3d_weights(
-            model,
-            checkpoint,
-            disable_gradient=weights_cfg.get("disable_gradient", False),
-        )
+        if hasattr(model, "load_pretrained_checkpoint"):
+            # Models with their own (strict) loading logic, e.g. daftfusion,
+            # which can initialize from a baseline or a late-fusion checkpoint.
+            model = model.load_pretrained_checkpoint(checkpoint)
+        else:
+            # Non-matching keys (the attention/clinical-fusion layers, which the
+            # checkpoint - trained on the plain baseline branched model - doesn't
+            # have) are silently skipped, leaving them at their random init.
+            model = load_saved_resnet3d_weights(
+                model,
+                checkpoint,
+                disable_gradient=weights_cfg.get("disable_gradient", False),
+            )
     return model
 
 
@@ -195,7 +205,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=(
             "Train one of the final fusion architectures "
-            "(cbam / earlyscalar / latefusion_flat) or the clinical_mlp encoder"
+            "(cbam / earlyscalar / latefusion_flat / daft) or the clinical_mlp encoder"
         )
     )
     source = parser.add_mutually_exclusive_group(required=True)
@@ -295,6 +305,8 @@ def main():
         save_top_k=1,
     )
     callbacks = [
+        # Early stopping uses max_patience; the LR scheduler has its own
+        # hyperparameters.lr_patience (see Base3DResNet._set_config).
         pl.callbacks.EarlyStopping(
             monitor="best_val_pirads_auc",
             patience=int(config["hyperparameters"].get("max_patience", 20)),

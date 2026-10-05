@@ -41,7 +41,8 @@ data:
 hyperparameters:
   learning_rate: 0.0001
   weight_decay: 0.0
-  max_patience: 20
+  max_patience: 20   # early stopping: epochs without a new best val AUC
+  lr_patience: 5     # LR scheduler: epochs without val_loss improvement before LR *= factor
   factor: 0.3
   dropout: 0.2
 

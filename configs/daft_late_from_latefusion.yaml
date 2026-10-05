@@ -1,0 +1,99 @@
+# Config for daftfusion.DAFTFusionModel with late fusion: DAFT blocks in the
+# last layer4 bottleneck of each frozen ResNet3D branch, PLUS the frozen
+# clinical embedding fed to the late-only model's head (img_proj + fc).
+# EVERYTHING but the DAFT MLPs is loaded from the late-only checkpoint, so
+# step 0 == the late-only model and training measures what DAFT adds to it.
+# Run with: python train.py --config configs/daft_late_from_latefusion.yaml
+#
+# NOTE: paths below mirror train_fusion_multihead_v2.yaml's known-working
+# cluster locations. Confirm/update model_ckpt, tabular_csv, and the *_dirs
+# paths against your own cluster environment before running.
+
+paths:
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_April4_testpatient_removed_relabeled.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_April4_testpatient_removed_relabeled.csv
+  test_csv: null
+  data_dirs:
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
+  dce_dirs: []
+  extra_valid_csv: null
+
+model:
+  model: daft
+
+daft:
+  # raw: condition on the tabular vector directly (as in the DAFT paper).
+  # encoder: condition on the frozen clinical MLP's 64-dim embedding
+  #          (loaded from model_weights.clinical_ckpt).
+  tabular_input: raw
+  bottleneck_factor: 7      # MLP hidden = (2048 + n_features) / factor
+  scale: true
+  shift: true
+  activation: linear        # linear | tanh | sigmoid (applied to the scale)
+  identity_init: true       # DAFT starts as an exact identity on the frozen features
+  train_host_block: true   # also fine-tune layer4[-1]'s convs (BN stats stay frozen)
+  # Late fusion of the clinical embedding alongside DAFT (see daft_late*.yaml).
+  late_fusion: true
+  init_from: latefusion     # baseline | latefusion (latefusion needs late_fusion: true)
+  late_clinical_dropout: 0.0
+  freeze_head_epochs: 5     # train only DAFT for the first N epochs
+  head_lr_scale: 0.1        # head LR = learning_rate * head_lr_scale
+
+training:
+  gpu: True
+  epochs: 100
+  batch_size: 16
+  num_workers: 4
+  seed: 42
+  imbalance_strategy: weighted_loss
+  class_weights: null # computed automatically from the training set
+  stack_adc_b1500: True
+  mode: cspca # pirads | gleason | tstage | cspca
+
+data:
+  series: ["axt2", "adc", "b1500"]
+  augment: none
+  noise_sigma_range: [0.0, 0.0]
+  downsample_factors: [1]
+  pirads_cutoff: 3
+  mask_prostate: False
+  normalize: true
+  # The number of features is detected from this file automatically. With
+  # daft.tabular_input: encoder it must be the same CSV the clinical_mlp run used.
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-03-tabular-data-onehot-some-lesion-level.csv'
+
+hyperparameters:
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  max_patience: 20   # early stopping: epochs without a new best val AUC
+  lr_patience: 10     # LR scheduler: epochs without val_loss improvement before LR *= factor
+  factor: 0.5
+  dropout: 0.2
+
+model_weights:
+  save_weights: True
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/daft-fusion/output/daft_late_from_latefusion_v1
+  load_weights: True
+  # The late-only (latefusion_flat) checkpoint: backbone, img_proj, fc and the
+  # clinical encoder all load from it, strictly. Point this at your best
+  # latefusion_flat_frozen_v1 checkpoint.
+  model_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_frozen/latefusion_flat_frozen_v1/latefusion_flat_epoch=10_best_val_pirads_auc=0.880.ckpt'
+  disable_gradient: False
+  # Should be the one the late-only model used; it's checked against the
+  # encoder stored in model_ckpt (model_ckpt's copy wins if they differ).
+  # Can be null here.
+  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp/clinical_mlp_norm_onehot_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.860.ckpt'
+
+logging:
+  log_run: True
+  project_name: lakshita_multimodal
+  run_name: daft_late_latefusioninit_v1
+  plot_roc: False
+  plot_confusion_matrix: False
+  plot_pirads_breakdown: False
+
+debugging:
+  debug: False
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/daft-fusion/output/daft_late_from_latefusion'
+  max_test_volumes: -1
+  compute_gradcam: False

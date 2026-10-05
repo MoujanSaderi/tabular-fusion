@@ -258,7 +258,7 @@ class Base3DResNet(pl.LightningModule):
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            patience=self.hyperparams["max_patience"],
+            patience=int(self.hyperparams["lr_patience"]),
             factor=self.hyperparams["factor"],
             threshold=1e-4,
         )
@@ -288,6 +288,14 @@ class Base3DResNet(pl.LightningModule):
             hyperparam_keys = config["hyperparameters"].keys()
             if key in hyperparam_keys:
                 self.hyperparams[key] = float(config["hyperparameters"][key])
+
+        # ReduceLROnPlateau patience (epochs without val_loss improvement before
+        # the LR is multiplied by `factor`). Separate from max_patience, which
+        # train.py uses for early stopping; configs without lr_patience keep the
+        # old behavior of sharing max_patience.
+        self.hyperparams["lr_patience"] = float(
+            config["hyperparameters"].get("lr_patience", self.hyperparams["max_patience"])
+        )
 
         # define loss
         if config["training"]["imbalance_strategy"] == "weighted_loss":

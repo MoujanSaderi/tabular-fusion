@@ -375,7 +375,7 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
         # the layer-wise ratios are preserved after each reduction.
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            patience=self.hyperparams["max_patience"],
+            patience=int(self.hyperparams["lr_patience"]),
             factor=self.hyperparams["factor"],
             threshold=1e-4,
         )
@@ -398,8 +398,9 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
 
     def on_train_batch_start(self, batch, batch_idx):
         # Linear warmup on top of the layer-wise LRs. It stops at the end of
-        # warmup, after which ReduceLROnPlateau owns the LRs (its patience is
-        # many epochs, so it can't act while warmup is still running).
+        # warmup, after which ReduceLROnPlateau owns the LRs (keep
+        # hyperparameters.lr_patience longer than warmup_epochs so it can't act
+        # while warmup is still running).
         if self.global_step < self._warmup_steps:
             scale = (self.global_step + 1) / self._warmup_steps
             for g in self.trainer.optimizers[0].param_groups:

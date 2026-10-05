@@ -1,6 +1,7 @@
-# Config for aug11latefusionflat.LateFusionFlatFrozen (image + flat clinical
-# late fusion, both encoders frozen except the final fc head).
-# Run with: python train.py --config configs/latefusion_flat.yaml
+# Config for daftfusion.DAFTFusionModel: one DAFT block (Wolf et al. 2022) in
+# the last layer4 bottleneck of each frozen ResNet3D branch. Trainable: the
+# DAFT MLPs and the fc head (both initialized so step 0 == the baseline model).
+# Run with: python train.py --config configs/daft.yaml
 #
 # NOTE: paths below mirror train_fusion_multihead_v2.yaml's known-working
 # cluster locations. Confirm/update model_ckpt, tabular_csv, and the *_dirs
@@ -16,7 +17,25 @@ paths:
   extra_valid_csv: null
 
 model:
-  model: latefusion_flat
+  model: daft
+
+daft:
+  # raw: condition on the tabular vector directly (as in the DAFT paper).
+  # encoder: condition on the frozen clinical MLP's 64-dim embedding
+  #          (loaded from model_weights.clinical_ckpt).
+  tabular_input: raw
+  bottleneck_factor: 7      # MLP hidden = (2048 + n_features) / factor
+  scale: true
+  shift: true
+  activation: linear        # linear | tanh | sigmoid (applied to the scale)
+  identity_init: true       # DAFT starts as an exact identity on the frozen features
+  train_host_block: false   # also fine-tune layer4[-1]'s convs (BN stats stay frozen)
+  # Late fusion of the clinical embedding alongside DAFT (see daft_late*.yaml).
+  late_fusion: false
+  init_from: baseline       # baseline | latefusion (latefusion needs late_fusion: true)
+  late_clinical_dropout: 0.0
+  freeze_head_epochs: 0     # train only DAFT for the first N epochs
+  head_lr_scale: 1.0        # head LR = learning_rate * head_lr_scale
 
 training:
   gpu: True
@@ -37,9 +56,8 @@ data:
   pirads_cutoff: 3
   mask_prostate: False
   normalize: true
-  # Must be the same CSV the clinical_mlp run used, so the frozen encoder sees
-  # the same features in the same order. The number of features is detected
-  # from this file automatically (tabular_dims is optional).
+  # The number of features is detected from this file automatically. With
+  # daft.tabular_input: encoder it must be the same CSV the clinical_mlp run used.
   tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-03-tabular-data-onehot-some-lesion-level.csv'
 
 hyperparameters:
@@ -52,27 +70,27 @@ hyperparameters:
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_frozen
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/daft
   load_weights: True
-  # Baseline (no clinical fusion) branched ResNet3D checkpoint the backbone
-  # is initialized from and then frozen (see on_train_start).
+  # Baseline (no clinical fusion) branched ResNet3D checkpoint. Initializes the
+  # frozen backbone AND the fc head (same layer names); DAFT weights aren't in
+  # it and keep their identity init.
   model_ckpt: /gpfs/data/prostatelab/Lakshita/experiments/cspca/epoch=02_AUC_best_val_pirads_auc=0.84_axt2_adc_b1500_baseline_cspca_pirads_cutoff_3.ckpt
   disable_gradient: False
-  # Path to a clinical-MLP checkpoint produced by mlpclinical.py: either the
-  # exported clinical_encoder.pt or the raw clinical_mlp_*.ckpt both work.
-  # If null, the frozen clinical encoder uses (frozen, untrained) random init.
+  # Only used when daft.tabular_input is 'encoder'. Either the exported
+  # clinical_encoder.pt or the raw clinical_mlp_*.ckpt works.
   clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp/clinical_mlp_norm_onehot_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.860.ckpt'
 
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: latefusion_flat_frozen_v1
+  run_name: daft_raw_v1
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: False
 
 debugging:
   debug: False
-  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_frozen'
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/daft'
   max_test_volumes: -1
   compute_gradcam: False
