@@ -231,13 +231,19 @@ def main():
     train_dataset = build_dataset(config["paths"]["train_csv"], config, "train", series)
     val_dataset = build_dataset(config["paths"]["valid_csv"], config, "val", series)
 
-    n_features = train_dataset.num_tabular_features
-    if config["data"].get("tabular_csv") and n_features != config["data"]["tabular_dims"]:
-        raise ValueError(
-            f"{config['data']['tabular_csv']} has {n_features} feature columns "
-            f"(excluding AccessionNumber and split), but the clinical MLP/encoders "
-            f"take {config['data']['tabular_dims']} inputs."
-        )
+    # The number of clinical features is taken from the tabular CSV itself;
+    # data.tabular_dims in a config is optional and only acts as a sanity check.
+    if config["data"].get("tabular_csv"):
+        n_features = train_dataset.num_tabular_features
+        configured = config["data"].get("tabular_dims")
+        if configured is not None and configured != n_features:
+            raise ValueError(
+                f"{config['data']['tabular_csv']} has {n_features} feature columns "
+                f"(excluding AccessionNumber), but data.tabular_dims is {configured}. "
+                f"Fix or remove tabular_dims from the config."
+            )
+        config["data"]["tabular_dims"] = n_features
+        print(f"Using {n_features} clinical features from {config['data']['tabular_csv']}")
 
     if config["training"].get("imbalance_strategy") == "weighted_loss" and not config[
         "training"
@@ -259,14 +265,15 @@ def main():
     if use_gpu:
         model.to(torch.device("cuda:0"))
 
-    save_dir = Path(config["model_weights"]["save_weights_dir"])
+    save_dir = Path(config["model_weights"]["save_weights_dir"]) / config["logging"]["run_name"]
     save_dir.mkdir(parents=True, exist_ok=True)
     # Always create preds_dir: on_test_epoch_end writes a predictions CSV there
     # regardless of debugging.debug, so trainer.test() would otherwise crash
     # after a full training run if the directory doesn't exist yet.
-    Path(config["debugging"]["preds_dir"]).mkdir(parents=True, exist_ok=True)
+    preds_dir = Path(config["debugging"]["preds_dir"]) / config["logging"]["run_name"]
+    preds_dir.mkdir(parents=True, exist_ok=True)
 
-    log_dir = Path(config["debugging"]["preds_dir"]) / "logs"
+    log_dir = save_dir / "logs"
     config["logging"]["log_dir"] = str(log_dir)
     for flag, subdir in (
         ("plot_roc", "roc"),

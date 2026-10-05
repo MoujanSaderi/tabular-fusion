@@ -4,34 +4,93 @@ from src.models.ResNet3D.base_3Dresnet import Base3DResNet
 from src.models.ResNet3D.base_3Dresnet import Bottleneck
 from src.models.ResNet3D.base_3Dresnet import ResNetBranch
 
+from mlpclinical import build_clinical_mlp
+
+# Index of the last hidden ReLU in build_clinical_mlp; the encoder keeps
+# layers [0, CLINICAL_ENCODER_END) and drops dropout + the 64 -> 2 classifier.
+CLINICAL_ENCODER_END = 4
+
+
+def _load_clinical_encoder_state(clinical_ckpt):
+    """Read a clinical-MLP checkpoint in any of the formats this repo produces
+    and return it keyed like the encoder's nn.Sequential ("0.weight", "2.bias", ...):
+
+      * clinical_encoder.pt exported by train.py   -> {fc1.*, fc2.*}
+      * a raw ClinicalMLPModel Lightning checkpoint -> {"state_dict": {mlp.0.*, ...}}
+      * a plain ClinicalMLPModel state dict         -> {mlp.0.*, mlp.2.*, ...}
+    """
+    state = torch.load(clinical_ckpt, map_location="cpu", weights_only=False)
+    state = state.get("state_dict", state)
+
+    renames = {"fc1.": "0.", "fc2.": "2.", "mlp.0.": "0.", "mlp.2.": "2."}
+    out = {}
+    for key, value in state.items():
+        for old, new in renames.items():
+            if key.startswith(old):
+                out[new + key[len(old):]] = value
+                break
+    expected = {"0.weight", "0.bias", "2.weight", "2.bias"}
+    if set(out) != expected:
+        raise KeyError(
+            f"{clinical_ckpt} doesn't look like a clinical MLP checkpoint: "
+            f"found keys {sorted(state)[:8]}..."
+        )
+    return out
+
+
 class FrozenClinicalEncoder(nn.Module):
-    def __init__(self, clinical_ckpt=None):
+    """The feature-extractor half of mlpclinical.ClinicalMLPModel
+    (Linear -> ReLU -> Linear -> ReLU), built from the same build_clinical_mlp
+    so the two can never drift apart. Fully frozen and locked in eval mode.
+
+    in_dims is the number of clinical features. If it isn't given it's read
+    from the checkpoint; if both are given they must agree.
+    """
+
+    def __init__(self, in_dims=None, clinical_ckpt=None):
         super().__init__()
-        self.fc1 = nn.Linear(37, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.2)
-        
-        if clinical_ckpt is not None:
-            state = torch.load(clinical_ckpt, map_location='cpu')
-            self.fc1.weight.data = state['fc1.weight']
-            self.fc1.bias.data = state['fc1.bias']
-            self.fc2.weight.data = state['fc2.weight']
-            self.fc2.bias.data = state['fc2.bias']
-            print(f"[FrozenClinicalEncoder] Loaded from {clinical_ckpt}")
-        
+
+        state = _load_clinical_encoder_state(clinical_ckpt) if clinical_ckpt else None
+        ckpt_dims = state["0.weight"].shape[1] if state is not None else None
+
+        if in_dims is None:
+            if ckpt_dims is None:
+                raise ValueError(
+                    "FrozenClinicalEncoder needs the number of clinical features: "
+                    "set data.tabular_dims / data.tabular_csv, or model_weights.clinical_ckpt."
+                )
+            in_dims = ckpt_dims
+        elif ckpt_dims is not None and ckpt_dims != in_dims:
+            raise ValueError(
+                f"Clinical checkpoint {clinical_ckpt} was trained on {ckpt_dims} features "
+                f"but the tabular data has {in_dims}. Use the same tabular_csv as the "
+                f"clinical_mlp run that produced the checkpoint."
+            )
+
+        # Dropout is a no-op in a frozen, eval-only encoder, so its value is irrelevant.
+        self.mlp = build_clinical_mlp(in_dims, dropout=0.0)[:CLINICAL_ENCODER_END]
+        self.in_dims = in_dims
+        self.out_dim = self.mlp[-2].out_features
+
+        if state is not None:
+            self.mlp.load_state_dict(state, strict=True)
+            print(f"[FrozenClinicalEncoder] Loaded {in_dims} -> {self.out_dim} encoder from {clinical_ckpt}")
+        else:
+            print(
+                "[FrozenClinicalEncoder] WARNING: no clinical_ckpt given, so the frozen "
+                "clinical encoder is randomly initialized and will never be trained."
+            )
+
         for param in self.parameters():
             param.requires_grad = False
         self.eval()
 
     def train(self, mode=True):
         return super().train(False)
-    
+
     def forward(self, x):
-        x = self.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = self.relu(self.fc2(x))
-        return x
+        return self.mlp(x)
+
 
 class LateFusionFlatFrozen(Base3DResNet):
     DWI_KEYS = ("adc", "b1500")
@@ -39,7 +98,11 @@ class LateFusionFlatFrozen(Base3DResNet):
     def __init__(self, config):
         super().__init__(config)
         self.stack_adc_b1500 = config["training"]["stack_adc_b1500"]
-        self.series = [series.value["key"] for series in config["data"]["series"]]
+        # Accept series either as SeriesType enums or as the plain strings
+        # train.py passes straight through from the YAML config.
+        self.series = [
+            s if isinstance(s, str) else s.value["key"] for s in config["data"]["series"]
+        ]
         
         series_set = set(self.series)
         self.stack_adc_b1500 = self.stack_adc_b1500 and set(self.DWI_KEYS).issubset(series_set)
@@ -63,12 +126,19 @@ class LateFusionFlatFrozen(Base3DResNet):
         
         self.img_proj = nn.Sequential(nn.Linear(self.feature_dim, 256), nn.ReLU())
         
-        clinical_ckpt = config["model_weights"].get("clinical_ckpt", None)
-        self.clinical_encoder = FrozenClinicalEncoder(clinical_ckpt=clinical_ckpt)
+        # tabular_dims is filled in by train.py from the tabular CSV; if it's
+        # absent the encoder falls back to the checkpoint's input width.
+        self.clinical_encoder = FrozenClinicalEncoder(
+            in_dims=config["data"].get("tabular_dims"),
+            clinical_ckpt=config["model_weights"].get("clinical_ckpt"),
+        )
         
         self.dropout = nn.Dropout(p=config["hyperparameters"]["dropout"])
         self.fc = nn.Sequential(
-            nn.Linear(256 + 64, 128), nn.ReLU(), self.dropout, nn.Linear(128, 2)
+            nn.Linear(256 + self.clinical_encoder.out_dim, 128),
+            nn.ReLU(),
+            self.dropout,
+            nn.Linear(128, 2),
         )
         
         if "axt2" in self.branches:
@@ -87,12 +157,23 @@ class LateFusionFlatFrozen(Base3DResNet):
     
     def on_train_start(self):
         print("Freezing ResNet and clinical encoder...")
-        for name, param in self.named_parameters():
-            if "branches" in name or "clinical_encoder" in name:
+        # Freeze by module, not by parameter name: the axt2 branch is also
+        # registered as self.resnet_single_branch, and named_parameters()
+        # reports shared parameters under that alias only, so a name-based
+        # "branches" check silently left the whole T2 ResNet trainable.
+        for param in self.parameters():
+            param.requires_grad = True
+        for module in (self.branches, self.clinical_encoder):
+            for param in module.parameters():
                 param.requires_grad = False
-            else:
-                param.requires_grad = True
         self.branches.eval()
+
+    def train(self, mode=True):
+        # Lightning calls .train() again after every validation loop; keep the
+        # frozen ResNet branches in eval so their BatchNorm stats don't drift.
+        super().train(mode)
+        self.branches.eval()
+        return self
     
     def forward(self, data_dict, tabular_features):
         img_feats = []

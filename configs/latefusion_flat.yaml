@@ -37,7 +37,10 @@ data:
   pirads_cutoff: 3
   mask_prostate: False
   normalize: true
-  tabular_csv: /gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv
+  # Must be the same CSV the clinical_mlp run used, so the frozen encoder sees
+  # the same features in the same order. The number of features is detected
+  # from this file automatically (tabular_dims is optional).
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-03-tabular-data-onehot-some-lesion-level.csv'
 
 hyperparameters:
   learning_rate: 0.0001
@@ -48,26 +51,27 @@ hyperparameters:
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/prostatelab/Lakshita/experiments/latefusion_flat_frozen
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_frozen
   load_weights: True
   # Baseline (no clinical fusion) branched ResNet3D checkpoint the backbone
   # is initialized from and then frozen (see on_train_start).
   model_ckpt: /gpfs/data/prostatelab/Lakshita/experiments/cspca/epoch=02_AUC_best_val_pirads_auc=0.84_axt2_adc_b1500_baseline_cspca_pirads_cutoff_3.ckpt
   disable_gradient: False
-  # Optional: path to a clinical-MLP checkpoint produced by mlpclinical.py.
+  # Path to a clinical-MLP checkpoint produced by mlpclinical.py: either the
+  # exported clinical_encoder.pt or the raw clinical_mlp_*.ckpt both work.
   # If null, the frozen clinical encoder uses (frozen, untrained) random init.
-  clinical_ckpt: null
+  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp/clinical_mlp_norm_onehot_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.860.ckpt'
 
 logging:
-  log_run: False
+  log_run: True
   project_name: lakshita_multimodal
-  run_name: latefusion_flat_frozen
+  run_name: latefusion_flat_frozen_v1
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: False
 
 debugging:
   debug: False
-  preds_dir: /gpfs/data/prostatelab/Lakshita/experiments/latefusion_flat_frozen
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_frozen'
   max_test_volumes: -1
   compute_gradcam: False

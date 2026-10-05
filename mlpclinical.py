@@ -1,5 +1,5 @@
 """
-Tabular-only clinical MLP (36 -> 128 -> 64 -> 2), restored from commit 2db1e00.
+Tabular-only clinical MLP (tabular_dims -> 128 -> 64 -> 2), restored from commit 2db1e00.
 
 Trained via `python train.py --config configs/clinical_mlp.yaml`. Its first two
 layers (mlp.0, mlp.2) are what the frozen clinical encoders in aug11cbam.py,
@@ -10,6 +10,29 @@ import torch
 import torch.nn as nn
 
 from src.models.ResNet3D.base_3Dresnet import Base3DResNet
+
+# Hidden widths of the clinical MLP. The fusion models reuse everything up to
+# the last hidden layer as their frozen clinical encoder, so CLINICAL_HIDDEN_DIMS[-1]
+# is also the size of the clinical embedding they fuse.
+CLINICAL_HIDDEN_DIMS = (128, 64)
+
+
+def build_clinical_mlp(in_dims, dropout, num_classes=2):
+    """Single source of truth for the clinical MLP architecture.
+
+    Layer indices are part of the checkpoint format: mlp.0 and mlp.2 are the
+    two hidden Linear layers (exported as fc1 / fc2 by train.py), mlp.5 is the
+    classifier. Keep the order unchanged so old checkpoints still load.
+    """
+    h1, h2 = CLINICAL_HIDDEN_DIMS
+    return nn.Sequential(
+        nn.Linear(in_dims, h1),   # 0
+        nn.ReLU(),                # 1
+        nn.Linear(h1, h2),        # 2
+        nn.ReLU(),                # 3
+        nn.Dropout(p=dropout),    # 4
+        nn.Linear(h2, num_classes),  # 5
+    )
 
 
 class ClinicalMLPModel(Base3DResNet):
@@ -23,15 +46,10 @@ class ClinicalMLPModel(Base3DResNet):
         del self.resnet_single_branch
         del self.fc
 
-        self.dropout = nn.Dropout(p=config["hyperparameters"]["dropout"])
-        self.mlp = nn.Sequential(
-            nn.Linear(config["data"]["tabular_dims"], 128),
-            nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            self.dropout,
-            nn.Linear(64, 2),
+        self.mlp = build_clinical_mlp(
+            config["data"]["tabular_dims"], config["hyperparameters"]["dropout"]
         )
+        self.dropout = self.mlp[4]  # kept as an attribute for backwards compatibility
 
     def forward(self, data_dict, tabular_features):
         return self.mlp(tabular_features)
