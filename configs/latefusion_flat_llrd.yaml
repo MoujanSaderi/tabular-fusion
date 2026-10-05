@@ -50,26 +50,26 @@ data:
   tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-03-tabular-data-onehot-some-lesion-level.csv'
 
 hyperparameters:
-  learning_rate: 0.0001  # LR of the fusion head; encoder LRs decay from this
+  learning_rate: 2e-5  # LR of the fusion head; encoder LRs decay from this
   weight_decay: 0.05     # not applied to biases / BatchNorm params
   max_patience: 20   # early stopping: epochs without a new best val AUC
-  lr_patience: 5     # LR scheduler: epochs without val_loss improvement before LR *= factor
-  factor: 0.3
+  lr_patience: 10     # LR scheduler: epochs without val_loss improvement before LR *= factor
+  factor: 0.5
   dropout: 0.2
 
 finetune:
   # Per-depth LR multiplier, depth counted back from the fusion head:
   #   head 1e-4 | layer4, clinical fc2 4e-5 | layer3, clinical fc1 1.6e-5
   #   layer2 6.4e-6 | layer1 2.6e-6 | stem 1.0e-6
-  layer_decay: 0.4
-  warmup_epochs: 1
+  layer_decay: 0.6
+  warmup_epochs: 5
   # Keep ResNet BatchNorm running stats at their pretrained values. Recommended
   # unless your per-GPU batch is comfortably large (>= ~16 volumes).
   freeze_bn_stats: True
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_llrd
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_llrd_t2
   load_weights: True
   # Baseline (no clinical fusion) branched ResNet3D checkpoint the backbone is
   # initialized from. For a linear-probe-then-fine-tune (LP-FT) run, point this
@@ -85,13 +85,13 @@ model_weights:
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: latefusion_flat_llrd_v1
+  run_name: latefusion_flat_llrd_t2
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: False
 
 debugging:
   debug: False
-  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_llrd'
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_llrd_t2'
   max_test_volumes: -1
   compute_gradcam: False
