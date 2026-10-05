@@ -305,6 +305,8 @@ def main():
         save_top_k=1,
     )
     callbacks = [
+        # Early stopping uses max_patience; the LR scheduler has its own
+        # hyperparameters.lr_patience (see Base3DResNet._set_config).
         pl.callbacks.EarlyStopping(
             monitor="best_val_pirads_auc",
             patience=int(config["hyperparameters"].get("max_patience", 20)),

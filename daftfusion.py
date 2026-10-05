@@ -524,7 +524,7 @@ class DAFTFusionModel(Base3DResNet):
         # ReduceLROnPlateau scales every group by the same factor, keeping the ratio.
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            patience=self.hyperparams["max_patience"],
+            patience=int(self.hyperparams["lr_patience"]),
             factor=self.hyperparams["factor"],
             threshold=1e-4,
         )

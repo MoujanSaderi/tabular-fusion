@@ -35,7 +35,7 @@ daft:
   # Late fusion of the clinical embedding alongside DAFT (see daft_late*.yaml).
   late_fusion: true
   init_from: latefusion     # baseline | latefusion (latefusion needs late_fusion: true)
-  late_clinical_dropout: 0.3
+  late_clinical_dropout: 0.0
   freeze_head_epochs: 5     # train only DAFT for the first N epochs
   head_lr_scale: 0.1        # head LR = learning_rate * head_lr_scale
 
@@ -65,8 +65,9 @@ data:
 hyperparameters:
   learning_rate: 0.0001
   weight_decay: 0.01
-  max_patience: 20
-  factor: 0.3
+  max_patience: 20   # early stopping: epochs without a new best val AUC
+  lr_patience: 10     # LR scheduler: epochs without val_loss improvement before LR *= factor
+  factor: 0.5
   dropout: 0.2
 
 model_weights:
