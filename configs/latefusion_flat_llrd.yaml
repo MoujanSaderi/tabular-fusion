@@ -1,0 +1,96 @@
+# Config for aug11latefusionflat.LateFusionFlatLLRD: the same image + flat
+# clinical late-fusion model as latefusion_flat.yaml, but with the ResNet3D
+# branches and the clinical MLP encoder unfrozen and fine-tuned with
+# layer-wise learning-rate decay (see the `finetune:` section).
+# Run with: python train.py --config configs/latefusion_flat_llrd.yaml
+#
+# NOTE: paths below mirror train_fusion_multihead_v2.yaml's known-working
+# cluster locations. Confirm/update model_ckpt, tabular_csv, and the *_dirs
+# paths against your own cluster environment before running.
+
+paths:
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_April4_testpatient_removed_relabeled.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_April4_testpatient_removed_relabeled.csv
+  test_csv: null
+  data_dirs:
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
+  dce_dirs: []
+  extra_valid_csv: null
+
+model:
+  model: latefusion_flat_llrd
+
+training:
+  gpu: True
+  epochs: 100
+  batch_size: 16
+  num_workers: 4
+  seed: 42
+  imbalance_strategy: weighted_loss
+  class_weights: null # computed automatically from the training set
+  stack_adc_b1500: True
+  mode: cspca # pirads | gleason | tstage | cspca
+  # Backprop through two ResNet3D-50s needs far more memory than the frozen
+  # model. If batch 16 OOMs, use batch_size: 8 + accumulate_grad_batches: 2.
+  precision: 16-mixed          # or bf16-mixed on A100/H100
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+
+data:
+  series: ["axt2", "adc", "b1500"]
+  augment: none
+  noise_sigma_range: [0.0, 0.0]
+  downsample_factors: [1]
+  pirads_cutoff: 3
+  mask_prostate: False
+  normalize: true
+  # Must be the same CSV the clinical_mlp run used, so the frozen encoder sees
+  # the same features in the same order. The number of features is detected
+  # from this file automatically (tabular_dims is optional).
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-03-tabular-data-onehot-some-lesion-level.csv'
+
+hyperparameters:
+  learning_rate: 0.0001  # LR of the fusion head; encoder LRs decay from this
+  weight_decay: 0.05     # not applied to biases / BatchNorm params
+  max_patience: 20
+  factor: 0.3
+  dropout: 0.2
+
+finetune:
+  # Per-depth LR multiplier, depth counted back from the fusion head:
+  #   head 1e-4 | layer4, clinical fc2 4e-5 | layer3, clinical fc1 1.6e-5
+  #   layer2 6.4e-6 | layer1 2.6e-6 | stem 1.0e-6
+  layer_decay: 0.4
+  warmup_epochs: 1
+  # Keep ResNet BatchNorm running stats at their pretrained values. Recommended
+  # unless your per-GPU batch is comfortably large (>= ~16 volumes).
+  freeze_bn_stats: True
+
+model_weights:
+  save_weights: True
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_llrd
+  load_weights: True
+  # Baseline (no clinical fusion) branched ResNet3D checkpoint the backbone is
+  # initialized from. For a linear-probe-then-fine-tune (LP-FT) run, point this
+  # at the best checkpoint of a latefusion_flat (frozen) run instead: its keys
+  # match this model exactly, so the fusion head starts trained, not random.
+  model_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_frozen/latefusion_flat_frozen_v1/latefusion_flat_epoch=10_best_val_pirads_auc=0.880.ckpt'
+  disable_gradient: False
+  # Path to a clinical-MLP checkpoint produced by mlpclinical.py: either the
+  # exported clinical_encoder.pt or the raw clinical_mlp_*.ckpt both work.
+  # If null, the frozen clinical encoder uses (frozen, untrained) random init.
+  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp/clinical_mlp_norm_onehot_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.860.ckpt'
+
+logging:
+  log_run: True
+  project_name: lakshita_multimodal
+  run_name: latefusion_flat_llrd_v1
+  plot_roc: False
+  plot_confusion_matrix: False
+  plot_pirads_breakdown: False
+
+debugging:
+  debug: False
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_llrd'
+  max_test_volumes: -1
+  compute_gradcam: False

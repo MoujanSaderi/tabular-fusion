@@ -6,6 +6,8 @@ clinical encoder:
     cbam            -> aug11cbam.TriSeriesModel
     earlyscalar     -> aug11earlyscalar.TriSeriesModelFrozen
     latefusion_flat -> aug11latefusionflat.LateFusionFlatFrozen
+    latefusion_flat_llrd -> aug11latefusionflat.LateFusionFlatLLRD
+                        (both encoders unfrozen, layer-wise LR decay)
     clinical_mlp    -> mlpclinical.ClinicalMLPModel
 
 All four subclass src.models.ResNet3D.base_3Dresnet.Base3DResNet. The fusion
@@ -42,6 +44,7 @@ from src.utils.data_enums import SeriesType
 from aug11cbam import TriSeriesModel as CBAMModel
 from aug11earlyscalar import TriSeriesModelFrozen as EarlyScalarModel
 from aug11latefusionflat import LateFusionFlatFrozen as LateFusionFlatModel
+from aug11latefusionflat import LateFusionFlatLLRD
 from mlpclinical import ClinicalMLPModel
 
 
@@ -49,6 +52,7 @@ MODEL_REGISTRY = {
     "cbam": CBAMModel,
     "earlyscalar": EarlyScalarModel,
     "latefusion_flat": LateFusionFlatModel,
+    "latefusion_flat_llrd": LateFusionFlatLLRD,
     "clinical_mlp": ClinicalMLPModel,
 }
 
@@ -307,12 +311,23 @@ def main():
         default_root_dir=save_dir,
         num_sanity_val_steps=0,
     )
+    # Optional, mainly for fine-tuning the encoders (latefusion_flat_llrd),
+    # where activations for the full ResNets must be kept for backprop.
+    train_cfg = config["training"]
+    if train_cfg.get("precision"):
+        trainer_kwargs["precision"] = train_cfg["precision"]
+    if train_cfg.get("accumulate_grad_batches"):
+        trainer_kwargs["accumulate_grad_batches"] = int(train_cfg["accumulate_grad_batches"])
+    if train_cfg.get("gradient_clip_val"):
+        trainer_kwargs["gradient_clip_val"] = float(train_cfg["gradient_clip_val"])
     if config["logging"].get("log_run"):
         trainer_kwargs["logger"] = WandbLogger(
             name=config["logging"]["run_name"],
             project=config["logging"]["project_name"],
             save_dir=str(save_dir),
         )
+        # Logs one LR curve per parameter group (uses each group's "name").
+        callbacks.append(pl.callbacks.LearningRateMonitor(logging_interval="step"))
 
     trainer = pl.Trainer(**trainer_kwargs)
     trainer.fit(model, train_loader, val_dataloaders=[val_loader])
