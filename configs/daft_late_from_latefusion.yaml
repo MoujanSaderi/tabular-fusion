@@ -36,12 +36,12 @@ daft:
   late_fusion: true
   init_from: latefusion     # baseline | latefusion (latefusion needs late_fusion: true)
   late_clinical_dropout: 0.0
-  freeze_head_epochs: 5     # train only DAFT for the first N epochs
+  freeze_head_epochs: 20     # train only DAFT for the first N epochs
   head_lr_scale: 0.1        # head LR = learning_rate * head_lr_scale
 
 training:
   gpu: True
-  epochs: 100
+  epochs: 150
   batch_size: 16
   num_workers: 4
   seed: 42
@@ -63,16 +63,16 @@ data:
   tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-03-tabular-data-onehot-some-lesion-level.csv'
 
 hyperparameters:
-  learning_rate: 0.0001
+  learning_rate: 5e-5
   weight_decay: 0.01
-  max_patience: 20   # early stopping: epochs without a new best val AUC
+  max_patience: 50   # early stopping: epochs without a new best val AUC
   lr_patience: 10     # LR scheduler: epochs without val_loss improvement before LR *= factor
   factor: 0.5
-  dropout: 0.2
+  dropout: 0.1
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/daft-fusion/output/daft_late_from_latefusion_v1
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/daft-fusion/output/daft_late_from_latefusion_v2
   load_weights: True
   # The late-only (latefusion_flat) checkpoint: backbone, img_proj, fc and the
   # clinical encoder all load from it, strictly. Point this at your best
@@ -87,7 +87,7 @@ model_weights:
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: daft_late_latefusioninit_v1
+  run_name: daft_late_latefusioninit_v2
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: False
