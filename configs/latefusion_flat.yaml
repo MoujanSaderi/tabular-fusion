@@ -40,7 +40,7 @@ data:
   # Must be the same CSV the clinical_mlp run used, so the frozen encoder sees
   # the same features in the same order. The number of features is detected
   # from this file automatically (tabular_dims is optional).
-  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-03-tabular-data-onehot-some-lesion-level.csv'
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv' # configs/clinical_mlp.yaml #/gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
 
 hyperparameters:
   learning_rate: 0.0001
@@ -52,7 +52,7 @@ hyperparameters:
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_frozen
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_pb_fixed_v1
   load_weights: True
   # Baseline (no clinical fusion) branched ResNet3D checkpoint the backbone
   # is initialized from and then frozen (see on_train_start).
@@ -61,18 +61,18 @@ model_weights:
   # Path to a clinical-MLP checkpoint produced by mlpclinical.py: either the
   # exported clinical_encoder.pt or the raw clinical_mlp_*.ckpt both work.
   # If null, the frozen clinical encoder uses (frozen, untrained) random init.
-  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp/clinical_mlp_norm_onehot_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.860.ckpt'
+  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_fixed_v1/clinical_mlp_fixed_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.851.ckpt'
 
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: latefusion_flat_frozen_v1
+  run_name: latefusion_pb_fixed_v1
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: False
 
 debugging:
   debug: False
-  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_frozen'
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_pb_fixed_v1'
   max_test_volumes: -1
   compute_gradcam: False

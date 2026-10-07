@@ -45,8 +45,8 @@ data:
   pirads_cutoff: 3
   mask_prostate: False
   normalize: true
-  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-06-tabular-data-onehotnotpirads-some-lesion-level-exclude-prior-pos-biopsy.csv' # configs/clinical_mlp.yaml #/gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
-  tabular_dims: 21
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv' # configs/clinical_mlp.yaml #/gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
+  tabular_dims: 27
 
 hyperparameters:
   learning_rate: 0.0001
@@ -58,7 +58,7 @@ hyperparameters:
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_exclude_ppb
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_fixed_v1
   # No imaging backbone, so there is nothing to load; train.py ignores
   # model_ckpt for clinical_mlp even if these are set.
   load_weights: False
@@ -69,13 +69,13 @@ model_weights:
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: clinical_mlp_exclude_ppb_v1
+  run_name: clinical_mlp_fixed_v1
   plot_roc: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963355-clinical_mlp_v1-2026-09-30.log 
   plot_confusion_matrix: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963721-clinical_mlp_v1-2026-09-30.log
   plot_pirads_breakdown: True
 
 debugging:
   debug: False
-  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_exclude_ppb
+  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_fixed_v1
   max_test_volumes: -1
   compute_gradcam: False

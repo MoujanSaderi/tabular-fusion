@@ -47,10 +47,10 @@ data:
   # Must be the same CSV the clinical_mlp run used, so the frozen encoder sees
   # the same features in the same order. The number of features is detected
   # from this file automatically (tabular_dims is optional).
-  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-03-tabular-data-onehot-some-lesion-level.csv'
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv' # configs/clinical_mlp.yaml #/gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
 
 hyperparameters:
-  learning_rate: 2e-5  # LR of the fusion head; encoder LRs decay from this
+  learning_rate: 1e-4  # LR of the fusion head; encoder LRs decay from this
   weight_decay: 0.05     # not applied to biases / BatchNorm params
   max_patience: 20   # early stopping: epochs without a new best val AUC
   lr_patience: 10     # LR scheduler: epochs without val_loss improvement before LR *= factor
@@ -69,29 +69,29 @@ finetune:
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_llrd_t2
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_llrd_pb_fixed_v1
   load_weights: True
   # Baseline (no clinical fusion) branched ResNet3D checkpoint the backbone is
   # initialized from. For a linear-probe-then-fine-tune (LP-FT) run, point this
   # at the best checkpoint of a latefusion_flat (frozen) run instead: its keys
   # match this model exactly, so the fusion head starts trained, not random.
-  model_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_frozen/latefusion_flat_frozen_v1/latefusion_flat_epoch=10_best_val_pirads_auc=0.880.ckpt'
+  model_ckpt: /gpfs/data/prostatelab/Lakshita/experiments/cspca/epoch=02_AUC_best_val_pirads_auc=0.84_axt2_adc_b1500_baseline_cspca_pirads_cutoff_3.ckpt
   disable_gradient: False
   # Path to a clinical-MLP checkpoint produced by mlpclinical.py: either the
   # exported clinical_encoder.pt or the raw clinical_mlp_*.ckpt both work.
   # If null, the frozen clinical encoder uses (frozen, untrained) random init.
-  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp/clinical_mlp_norm_onehot_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.860.ckpt'
+  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_fixed_v1/clinical_mlp_fixed_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.851.ckpt'
 
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: latefusion_flat_llrd_t2
+  run_name: latefusion_llrd_pb_fixed_v1
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: False
 
 debugging:
   debug: False
-  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_flat_llrd_t2'
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_llrd_pb_fixed_v1'
   max_test_volumes: -1
   compute_gradcam: False
