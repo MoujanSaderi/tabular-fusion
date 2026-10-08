@@ -31,7 +31,7 @@ daft:
   shift: true
   activation: linear        # linear | tanh | sigmoid (applied to the scale)
   identity_init: true       # DAFT starts as an exact identity on the frozen features
-  train_host_block: false   # also fine-tune layer4[-1]'s convs (BN stats stay frozen)
+  train_host_block: true   # also fine-tune layer4[-1]'s convs (BN stats stay frozen)
   # Late fusion of the clinical embedding alongside DAFT (see daft_late*.yaml).
   late_fusion: true
   init_from: baseline       # baseline | latefusion (latefusion needs late_fusion: true)
@@ -72,7 +72,7 @@ hyperparameters:
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/daft-fusion/output/daft_late_pb_fixed_v1
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/daft-fusion/output/daft_late_pb_fixed_trainhostblock_v1
   load_weights: True
   # Baseline (no clinical fusion) branched ResNet3D checkpoint. Initializes the
   # frozen backbone AND the fc head (same layer names); DAFT weights aren't in
@@ -87,13 +87,13 @@ model_weights:
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: daft_late_pb_fixed_v1
+  run_name: daft_late_pb_fixed_trainhostblock_v1
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: False
 
 debugging:
   debug: False
-  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/daft-fusion/output/daft_late_pb_fixed_v1'
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/daft-fusion/output/daft_late_pb_fixed_trainhostblock_v1'
   max_test_volumes: -1
   compute_gradcam: False
