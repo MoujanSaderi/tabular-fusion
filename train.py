@@ -36,7 +36,7 @@ import pytorch_lightning as pl
 import torch
 import yaml
 from pytorch_lightning.loggers import WandbLogger
-from torch.utils.data import DataLoader, default_collate
+from torch.utils.data import DataLoader, default_collate, Subset
 
 from src.data.loader import ExamH5Dataset
 from src.models.ResNet3D.lakshita_earlyfusion_construct_resnet3d import (
@@ -53,6 +53,7 @@ from daftfusion import DAFTFusionModel
 from crossattnfusion import CrossAttnFusionModel
 from crossattnlate import CrossAttnLateFusion
 
+LIMIT_SAMPLES = 32
 
 MODEL_REGISTRY = {
     "cbam": CBAMModel,
@@ -133,6 +134,7 @@ def build_dataset(csv_path, config, mode, series):
 
 
 def build_dataloader(dataset, config, shuffle):
+
     return DataLoader(
         dataset,
         batch_size=config["training"]["batch_size"],
@@ -267,6 +269,10 @@ def main():
         "training"
     ].get("class_weights"):
         config["training"]["class_weights"] = train_dataset.class_weights
+    
+    if LIMIT_SAMPLES is not None:
+        limited_indices = list(range(LIMIT_SAMPLES))
+        train_dataset = Subset(train_dataset, limited_indices)
 
     train_loader = build_dataloader(train_dataset, config, shuffle=True)
     val_loader = build_dataloader(val_dataset, config, shuffle=False)
