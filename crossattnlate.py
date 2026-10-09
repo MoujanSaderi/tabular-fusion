@@ -114,6 +114,20 @@ class CrossAttnLateFusion(LateFusionFlatFrozen):
             for p in m.parameters():
                 p.requires_grad = True
         self.branches.eval()
+    
+    def on_before_optimizer_step(self, optimizer):
+        if not self.log_configs["log_run"]:
+            return
+        def grad_norm(modules):
+            grads = [p.grad.norm() for m in modules for p in m.parameters() if p.grad is not None]
+            return torch.norm(torch.stack(grads)) if grads else torch.tensor(0.0)
+        self.log("grad_norm_delta_out", grad_norm([self.delta_head[-1]]))
+        self.log("grad_norm_upstream", grad_norm([self.clin_tok, self.img_tok, self.blocks]))
+        self.log("delta_abs_mean", self.last_delta.abs().mean())
+        self.log("delta_out_weight_norm", self.delta_head[-1].weight.norm())
+        d = self.last_delta[:, 1] - self.last_delta[:, 0]   # correction to the positive-class log-odds
+        self.log("delta_logodds_std", d.std())              # patient-specific part (can change ranking)
+        self.log("delta_logodds_mean", d.mean())            # uniform part (can't change AUC)
 
     def configure_optimizers(self):
         lr = self.hyperparams["learning_rate"]
@@ -159,5 +173,7 @@ class CrossAttnLateFusion(LateFusionFlatFrozen):
             attns.append(attn.detach())
         self.last_attn, self.last_grids = attns, grids
 
-        return base_logits + self.delta_head(q[:, 0])
+        delta = self.delta_head(q[:, 0])
+        self.last_delta = delta.detach()
+        return base_logits + delta
     # training/validation/test steps are inherited from LateFusionFlatFrozen
