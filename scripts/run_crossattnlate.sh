@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name cross-attn-layer2-late-v1
+#SBATCH --job-name cross-attn-layer2-late-v1c
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
 #SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/script_logs/job-%j-%x.log
