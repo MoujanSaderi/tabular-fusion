@@ -255,11 +255,12 @@ class LateFusionFlatFrozen(Base3DResNet):
 
 
 class LateFusionFlatLLRD(LateFusionFlatFrozen):
-    """LateFusionFlatFrozen with both encoders unfrozen and fine-tuned using
-    layer-wise learning-rate decay (LLRD).
+    """LateFusionFlatFrozen with the clinical MLP encoder and the last N ResNet
+    stages unfrozen and fine-tuned using layer-wise learning-rate decay (LLRD).
 
-    Every parameter's LR is hyperparameters.learning_rate * layer_decay**depth,
-    where depth counts steps back from the (randomly initialized) fusion head:
+    Every trainable parameter's LR is
+    hyperparameters.learning_rate * layer_decay**depth, where depth counts
+    steps back from the (randomly initialized) fusion head:
 
         depth 0  img_proj, fc                      (fusion head, full LR)
         depth 1  ResNet layer4  | clinical fc2
@@ -273,16 +274,28 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
     stage rather than per bottleneck block, which is the usual granularity for
     CNNs and keeps the number of groups small.
 
+    ResNet stages are unfrozen from the head backwards (layer4, layer3, layer2,
+    layer1, stem). Stages that stay frozen get no gradients and no optimizer
+    group, and are kept fully in eval mode (pretrained BatchNorm stats). The
+    LR of a trainable stage doesn't depend on how many stages are unfrozen.
+
     Config (all optional), under a top-level `finetune:` section:
+        unfreeze_stages  how many ResNet stages to train, counted
+                         from layer4: 0 = ResNet fully frozen,
+                         1 = layer4, 2 = layer3 + layer4, ...,
+                         4 = all of layer1-4, 5 or "all" = also
+                         the stem                                (default "all")
         layer_decay      per-depth LR multiplier                 (default 0.4)
         warmup_epochs    linear LR warmup for every group        (default 1)
-        freeze_bn_stats  keep ResNet BatchNorm running stats at
-                         their pretrained values (affine params
-                         still train)                            (default True)
+        freeze_bn_stats  keep the trainable stages' BatchNorm
+                         running stats at their pretrained
+                         values (affine params still train)      (default True)
     """
 
     FREEZE_ENCODERS = False
     RESNET_STAGES = ("layer1", "layer2", "layer3", "layer4")
+    # Order in which ResNet stages are unfrozen; index + 1 is the LLRD depth.
+    UNFREEZE_ORDER = ("layer4", "layer3", "layer2", "layer1", "stem")
 
     def __init__(self, config):
         super().__init__(config)
@@ -292,8 +305,47 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
         self.freeze_bn_stats = bool(ft.get("freeze_bn_stats", True))
         self._warmup_steps = 0
 
+        n_stages = ft.get("unfreeze_stages", "all")
+        if isinstance(n_stages, str) and n_stages.lower() == "all":
+            n_stages = len(self.UNFREEZE_ORDER)
+        n_stages = int(n_stages)
+        if not 0 <= n_stages <= len(self.UNFREEZE_ORDER):
+            raise ValueError(
+                f"finetune.unfreeze_stages must be 0-{len(self.UNFREEZE_ORDER)} "
+                f"or 'all', got {ft.get('unfreeze_stages')!r}"
+            )
+        self.unfreeze_stages = n_stages
+        self.trainable_stages = set(self.UNFREEZE_ORDER[:n_stages])
+
+        # Freeze here, before configure_optimizers builds the param groups.
+        self._apply_freeze(verbose=True)
+
+    # ------------------------------------------------------------------ #
+    # Freezing
+    # ------------------------------------------------------------------ #
+    @classmethod
+    def _stage_of(cls, name):
+        """Stage of a ResNetBranch parameter/child by its name (conv1, bn1,
+        and anything else outside layer1-4 count as the stem)."""
+        top = name.split(".")[0]
+        return top if top in cls.RESNET_STAGES else "stem"
+
+    def _apply_freeze(self, verbose=False):
+        # Head and clinical encoder are always trainable.
         for param in self.parameters():
             param.requires_grad = True
+        # Per branch (not via self.named_parameters(), which reports the
+        # shared branch parameters under their alias names).
+        for branch in self.branches.values():
+            for name, param in branch.named_parameters():
+                param.requires_grad = self._stage_of(name) in self.trainable_stages
+
+        if verbose:
+            trainable = [s for s in self.UNFREEZE_ORDER if s in self.trainable_stages]
+            frozen = [s for s in self.UNFREEZE_ORDER if s not in self.trainable_stages]
+            n_train = sum(p.numel() for p in self.parameters() if p.requires_grad)
+            print(f"[LLRD] ResNet stages trainable: {trainable or 'none'}; "
+                  f"frozen: {frozen or 'none'}; trainable params={n_train:,}")
 
     # ------------------------------------------------------------------ #
     # Parameter groups
@@ -302,7 +354,6 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
         base_lr = self.hyperparams["learning_rate"]
         weight_decay = self.hyperparams["weight_decay"]
         decay = self.layer_decay
-        n_stages = len(self.RESNET_STAGES)
 
         groups = {}
         seen = set()
@@ -312,7 +363,8 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
             # the ResNet branches are also registered under alias attributes
             # (resnet_single_branch, resnet_dual_branch1, ...), and
             # named_parameters() on the whole model would report them under
-            # the alias names instead of the branch names.
+            # the alias names instead of the branch names. Frozen parameters
+            # (requires_grad=False) get no group.
             if id(param) in seen or not param.requires_grad:
                 return
             seen.add(id(param))
@@ -334,15 +386,13 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
             for param in module.parameters():
                 add("head", 0, param)
 
-        # ResNet3D branches. The same stage of every branch shares one group.
+        # ResNet3D branches. The same stage of every branch shares one group;
+        # depth is fixed per stage (layer4 -> 1, ..., stem -> 5).
         for branch in self.branches.values():
             for name, param in branch.named_parameters():
-                top = name.split(".")[0]
-                if top in self.RESNET_STAGES:
-                    depth = n_stages - self.RESNET_STAGES.index(top)  # layer4 -> 1
-                    add(f"resnet.{top}", depth, param)
-                else:  # conv1 / bn1
-                    add("resnet.stem", n_stages + 1, param)
+                stage = self._stage_of(name)
+                depth = self.UNFREEZE_ORDER.index(stage) + 1
+                add(f"resnet.{stage}", depth, param)
 
         # Clinical MLP encoder: the last Linear is closest to the head.
         linears = [m for m in self.clinical_encoder.mlp if isinstance(m, nn.Linear)]
@@ -364,7 +414,8 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
         param_groups = self._llrd_param_groups()
 
         print(f"[LLRD] base_lr={self.hyperparams['learning_rate']:.2e} "
-              f"layer_decay={self.layer_decay} weight_decay={self.hyperparams['weight_decay']}")
+              f"layer_decay={self.layer_decay} weight_decay={self.hyperparams['weight_decay']} "
+              f"unfreeze_stages={self.unfreeze_stages}")
         for g in param_groups:
             n_params = sum(p.numel() for p in g["params"])
             print(f"[LLRD]   {g['name']:<26} lr={g['lr']:.2e}  wd={g['weight_decay']:<6g} "
@@ -389,11 +440,16 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
     # Warmup and train/eval mode
     # ------------------------------------------------------------------ #
     def on_train_start(self):
-        # Nothing is frozen here (unlike the parent). Set up the warmup length
-        # in optimizer steps, which accounts for gradient accumulation.
+        # Re-assert the freeze in case anything toggled requires_grad after
+        # __init__ (the optimizer groups were already built from it).
+        self._apply_freeze()
+        # Set up the warmup length in optimizer steps, which accounts for
+        # gradient accumulation.
         steps_per_epoch = self.trainer.estimated_stepping_batches / max(self.trainer.max_epochs, 1)
         self._warmup_steps = int(self.warmup_epochs * steps_per_epoch)
-        print(f"[LLRD] Fine-tuning all encoders; linear warmup over {self._warmup_steps} steps; "
+        print(f"[LLRD] Fine-tuning clinical encoder + ResNet stages "
+              f"{[s for s in self.UNFREEZE_ORDER if s in self.trainable_stages]}; "
+              f"linear warmup over {self._warmup_steps} steps; trainable-stage "
               f"BatchNorm stats {'frozen' if self.freeze_bn_stats else 'updating'}.")
 
     def on_train_batch_start(self, batch, batch_idx):
@@ -408,12 +464,19 @@ class LateFusionFlatLLRD(LateFusionFlatFrozen):
 
     def train(self, mode=True):
         # Skip LateFusionFlatFrozen.train, which forces the whole ResNet into
-        # eval. Here only the BatchNorm layers are optionally kept in eval, so
-        # their running stats stay at the pretrained values while their affine
-        # parameters (and everything else) still train.
+        # eval. Frozen stages are kept fully in eval (pretrained BatchNorm
+        # stats); in trainable stages only the BatchNorm layers are optionally
+        # kept in eval, so their running stats stay at the pretrained values
+        # while their affine parameters (and everything else) still train.
         Base3DResNet.train(self, mode)
-        if mode and getattr(self, "freeze_bn_stats", True):
-            for module in self.branches.modules():
-                if isinstance(module, nn.modules.batchnorm._BatchNorm):
-                    module.eval()
+        trainable = getattr(self, "trainable_stages", None)
+        if mode and trainable is not None:
+            for branch in self.branches.values():
+                for name, child in branch.named_children():
+                    if self._stage_of(name) not in trainable:
+                        child.eval()
+                    elif self.freeze_bn_stats:
+                        for module in child.modules():
+                            if isinstance(module, nn.modules.batchnorm._BatchNorm):
+                                module.eval()
         return self

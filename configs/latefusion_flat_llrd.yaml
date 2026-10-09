@@ -1,6 +1,6 @@
 # Config for aug11latefusionflat.LateFusionFlatLLRD: the same image + flat
-# clinical late-fusion model as latefusion_flat.yaml, but with the ResNet3D
-# branches and the clinical MLP encoder unfrozen and fine-tuned with
+# clinical late-fusion model as latefusion_flat.yaml, but with the clinical MLP
+# encoder and the last N ResNet3D stages unfrozen and fine-tuned with
 # layer-wise learning-rate decay (see the `finetune:` section).
 # Run with: python train.py --config configs/latefusion_flat_llrd.yaml
 #
@@ -30,8 +30,10 @@ training:
   class_weights: null # computed automatically from the training set
   stack_adc_b1500: True
   mode: cspca # pirads | gleason | tstage | cspca
-  # Backprop through two ResNet3D-50s needs far more memory than the frozen
-  # model. If batch 16 OOMs, use batch_size: 8 + accumulate_grad_batches: 2.
+  # Backprop through the unfrozen ResNet3D stages needs more memory than the
+  # frozen model (less than full fine-tuning: frozen early stages store no
+  # activations for backward). If batch 16 OOMs, use batch_size: 8 +
+  # accumulate_grad_batches: 2.
   precision: 16-mixed          # or bf16-mixed on A100/H100
   accumulate_grad_batches: 1
   gradient_clip_val: 1.0
@@ -44,7 +46,7 @@ data:
   pirads_cutoff: 3
   mask_prostate: False
   normalize: true
-  # Must be the same CSV the clinical_mlp run used, so the frozen encoder sees
+  # Must be the same CSV the clinical_mlp run used, so the encoder sees
   # the same features in the same order. The number of features is detected
   # from this file automatically (tabular_dims is optional).
   tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv' # configs/clinical_mlp.yaml #/gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
@@ -55,21 +57,28 @@ hyperparameters:
   max_patience: 20   # early stopping: epochs without a new best val AUC
   lr_patience: 10     # LR scheduler: epochs without val_loss improvement before LR *= factor
   factor: 0.5
-  dropout: 0.2
+  dropout: 0.3
 
 finetune:
-  # Per-depth LR multiplier, depth counted back from the fusion head:
-  #   head 1e-4 | layer4, clinical fc2 4e-5 | layer3, clinical fc1 1.6e-5
-  #   layer2 6.4e-6 | layer1 2.6e-6 | stem 1.0e-6
-  layer_decay: 0.6
+  # ResNet stages to train, counted back from the head:
+  #   0 = ResNet frozen | 1 = layer4 | 2 = layer3 + layer4 | ...
+  #   4 = layer1-4 | 5 or "all" = also the stem (conv1 + bn1)
+  # Frozen stages get no optimizer group and stay in eval mode.
+  unfreeze_stages: 2
+  # Per-depth LR multiplier, depth counted back from the fusion head.
+  # With layer_decay 0.6 and unfreeze_stages 2:
+  #   head 1e-4 | layer4, clinical fc2 6e-5 | layer3, clinical fc1 3.6e-5
+  #   (layer2 / layer1 / stem frozen)
+  layer_decay: 0.5
   warmup_epochs: 5
-  # Keep ResNet BatchNorm running stats at their pretrained values. Recommended
-  # unless your per-GPU batch is comfortably large (>= ~16 volumes).
+  # Keep the trainable stages' BatchNorm running stats at their pretrained
+  # values. Recommended unless your per-GPU batch is comfortably large
+  # (>= ~16 volumes).
   freeze_bn_stats: True
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_llrd_pb_fixed_v1
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_llrd_last2_pb_fixed_v1
   load_weights: True
   # Baseline (no clinical fusion) branched ResNet3D checkpoint the backbone is
   # initialized from. For a linear-probe-then-fine-tune (LP-FT) run, point this
@@ -79,19 +88,19 @@ model_weights:
   disable_gradient: False
   # Path to a clinical-MLP checkpoint produced by mlpclinical.py: either the
   # exported clinical_encoder.pt or the raw clinical_mlp_*.ckpt both work.
-  # If null, the frozen clinical encoder uses (frozen, untrained) random init.
+  # If null, the clinical encoder is trained from random init.
   clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_fixed_v1/clinical_mlp_fixed_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.851.ckpt'
 
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: latefusion_llrd_pb_fixed_v1
+  run_name: latefusion_llrd_last2_pb_fixed_v1
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: False
 
 debugging:
   debug: False
-  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_llrd_pb_fixed_v1'
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_llrd_last2_pb_fixed_v1'
   max_test_volumes: -1
   compute_gradcam: False
