@@ -1,3 +1,31 @@
+"""
+Clinically conditioned CBAM (Woo et al., ECCV 2018) on a frozen ResNet3D backbone.
+
+Follows the original CBAM design:
+  * channel attention pools each channel with BOTH average and max pooling and
+    scores the two descriptors with one shared bottleneck MLP (C -> C/r -> C),
+    then sums the two logits and applies a sigmoid;
+  * spatial attention pools across channels with BOTH average and max pooling,
+    stacks the two maps, and applies one large-kernel conv (7x7x7) + sigmoid;
+  * channel attention runs first, then spatial attention;
+  * by default a CBAM module sits in EVERY bottleneck block, on the residual
+    branch just before the skip-connection add, so the identity path is never
+    gated.
+
+Additions for clinical conditioning and the frozen backbone (see `cbam:` in
+configs/cbam.yaml):
+  * channel attention: the clinical embedding is concatenated to each pooled
+    descriptor before the shared MLP, so the channel gate depends jointly on
+    image content and the patient's clinical profile, and the MLP stays shared;
+  * spatial attention: the clinical embedding FiLM-modulates the stacked
+    avg/max maps (per-map scale and shift) before the conv. Clinical context
+    also reaches the spatial gate indirectly, since the maps are pooled from
+    features the clinically conditioned channel gate already reweighted;
+  * identity_init: gates are 2*sigmoid(.) with the last layer of each gate
+    zero-initialised, so every CBAM module starts as the identity and the
+    frozen pretrained backbone initially behaves exactly as it was trained.
+    Set identity_init: false for the paper's plain sigmoid gates.
+"""
 import torch
 import torch.nn as nn
 
@@ -6,109 +34,160 @@ from src.models.ResNet3D.base_3Dresnet import Bottleneck
 from src.models.ResNet3D.base_3Dresnet import ResNetBranch
 
 from aug11latefusionflat import ClinicalEncoder
-"""
-Clinical features define how important each channel is for each specific patient. Our output 
-from this function is essentially 2048 numbers indicating how credibly important each channel is, and we just
-multiply the MRI features with those weights.
 
-The output is the original MRI feature map, but with each channel scaled by its importance weight.
-"""
+STAGES = ("layer1", "layer2", "layer3", "layer4")
+
+DEFAULT_CBAM_CONFIG = {
+    # "blocks": a CBAM module inside every bottleneck of the listed stages
+    #           (original CBAM placement).
+    # "post":   a single CBAM module on the layer4 output, before avgpool
+    #           (the previous version of this model), for ablations.
+    "placement": "blocks",
+    "stages": [1, 2, 3, 4],  # only used with placement "blocks"
+    "reduction": 16,
+    "kernel_size": 7,
+    "spatial_clinical": "film",  # "film" | "none"
+    "identity_init": True,
+}
+
+
+def _gate(logits, identity_init):
+    # identity_init: gate in (0, 2), exactly 1 when the logits are 0.
+    return 2.0 * torch.sigmoid(logits) if identity_init else torch.sigmoid(logits)
+
 
 class ClinicalChannelAttention(nn.Module):
-    def __init__(self, channel_dim=2048, tabular_dim=64, reduction=16):
+    """Mc = gate(MLP([avg(F); c]) + MLP([max(F); c])), one MLP shared by both."""
+
+    def __init__(self, channels, clin_dim, reduction=16, identity_init=True):
         super().__init__()
-        # MLP: squeezed features + clinical → channel weights
+        self.identity_init = identity_init
+        hidden = max(channels // reduction, 8)
         self.mlp = nn.Sequential(
-            nn.Linear(channel_dim + tabular_dim, channel_dim // reduction),
+            nn.Linear(channels + clin_dim, hidden),
             nn.ReLU(),
-            nn.Linear(channel_dim // reduction, channel_dim),
+            nn.Linear(hidden, channels),
         )
+        if identity_init:
+            nn.init.zeros_(self.mlp[-1].weight)
+            nn.init.zeros_(self.mlp[-1].bias)
 
-    def forward(self, x, tabular_features):
-        # x: (batch, 2048, H, W, D)
-        # squeeze spatial dims → (batch, 2048)
-        avg = x.mean(dim=[2, 3, 4])
-        # concatenate with clinical features → (batch, 2048 + 64)
-        combined = torch.cat([avg, tabular_features], dim=1)
-        # MLP → (batch, 2048) weights
-        weights = torch.sigmoid(self.mlp(combined))
-        # reshape for broadcasting → (batch, 2048, 1, 1, 1)
-        weights = weights.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-        return x * weights
+    def forward(self, x, clin):
+        # x: (B, C, D, H, W), clin: (B, clin_dim)
+        avg = x.mean(dim=(2, 3, 4))
+        mx = x.amax(dim=(2, 3, 4))
+        logits = self.mlp(torch.cat([avg, clin], dim=1)) + self.mlp(torch.cat([mx, clin], dim=1))
+        weights = _gate(logits, self.identity_init)
+        return x * weights[:, :, None, None, None]
 
 
-"""
-This averages the 2048 features into one spatial map. This ends up giving us a
-3D heatmap of where the ResNet found the most interesting features in the MRI, with
-one value per location indicating how much activity is there
-at each location overall.
-
-The clinical features give us a global shift here as a bias, and we shift the entire
-spatial map based on clinical context. We then smooth the map, and nearby locations also end up influencing each other
-
-Essentially both channel and spatial attention
-functions are receiving these clinical features independently, one for the purposes of
-knowing what to look for, and one for knowing where to look for.
-"""
 class ClinicalSpatialAttention(nn.Module):
-    def __init__(self, tabular_dim=64):
-        super().__init__()
-        # MLP: clinical → 1 value, then conv creates spatial map
-        self.mlp = nn.Sequential(
-            nn.Linear(tabular_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1),
-        )
-        # conv: takes channel-averaged features + clinical bias → spatial map
-        self.conv = nn.Conv3d(1, 1, kernel_size=7, padding=3, bias=False)
+    """Ms = gate(conv([avg_c(F); max_c(F)])), with the two pooled maps optionally
+    FiLM-modulated by the clinical embedding before the conv."""
 
-    def forward(self, x, tabular_features):
-        # x: (batch, 2048, H, W, D)
-        # average across channels → (batch, 1, H, W, D)
-        avg = x.mean(dim=1, keepdim=True)
-        # clinical bias → (batch, 1)
-        bias = self.mlp(tabular_features)
-        # reshape bias → (batch, 1, 1, 1, 1) and broadcast
-        bias = bias.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
-        # add clinical bias to spatial map
-        spatial = avg + bias
-        # conv refines the spatial map
-        spatial = self.conv(spatial)
-        # sigmoid → weights between 0 and 1
-        weights = torch.sigmoid(spatial)  # (batch, 1, H, W, D)
+    def __init__(self, clin_dim, kernel_size=7, spatial_clinical="film", identity_init=True):
+        super().__init__()
+        if spatial_clinical not in ("film", "none"):
+            raise ValueError(f"cbam.spatial_clinical must be 'film' or 'none', got {spatial_clinical!r}")
+        self.identity_init = identity_init
+        self.conv = nn.Conv3d(2, 1, kernel_size=kernel_size, padding=kernel_size // 2, bias=False)
+        # (gamma, beta) for each of the 2 pooled maps. Zero-initialised so FiLM
+        # starts as the identity regardless of identity_init.
+        self.film = nn.Linear(clin_dim, 4) if spatial_clinical == "film" else None
+        if self.film is not None:
+            nn.init.zeros_(self.film.weight)
+            nn.init.zeros_(self.film.bias)
+        if identity_init:
+            nn.init.zeros_(self.conv.weight)
+
+    def forward(self, x, clin):
+        pooled = torch.cat([x.mean(dim=1, keepdim=True), x.amax(dim=1, keepdim=True)], dim=1)
+        if self.film is not None:
+            gamma, beta = self.film(clin).view(-1, 2, 2).unbind(dim=1)  # each (B, 2)
+            pooled = pooled * (1 + gamma[:, :, None, None, None]) + beta[:, :, None, None, None]
+        weights = _gate(self.conv(pooled), self.identity_init)  # (B, 1, D, H, W)
         return x * weights
 
 
-class ResNetBranchEarly(ResNetBranch):
-    """ResNet branch with clinical CBAM after layer4. The clinical embedding is
-    computed once by the model-level ClinicalEncoder and passed in, so every
-    branch attends with the same (loaded) encoder output."""
+class ClinicalCBAM(nn.Module):
+    """Channel attention, then spatial attention."""
 
-    def __init__(self, block, layers, in_chans, tabular_dim=64):
-        super().__init__(block, layers, in_chans)
+    def __init__(self, channels, clin_dim, cfg):
+        super().__init__()
         self.channel_attn = ClinicalChannelAttention(
-            channel_dim=2048,
-            tabular_dim=tabular_dim
+            channels, clin_dim, reduction=cfg["reduction"], identity_init=cfg["identity_init"]
         )
-        self.spatial_attn = ClinicalSpatialAttention(tabular_dim=tabular_dim)
+        self.spatial_attn = ClinicalSpatialAttention(
+            clin_dim,
+            kernel_size=cfg["kernel_size"],
+            spatial_clinical=cfg["spatial_clinical"],
+            identity_init=cfg["identity_init"],
+        )
 
-    def forward(self, x, clinical_emb):
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.maxpool(out)
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
+    def forward(self, x, clin):
+        return self.spatial_attn(self.channel_attn(x, clin), clin)
 
-        # CBAM: channel attention first, then spatial attention
-        out = self.channel_attn(out, clinical_emb)
-        out = self.spatial_attn(out, clinical_emb)
 
+def _bottleneck_forward(block, x, clin):
+    """Bottleneck.forward with block.cbam (if present) applied to the residual
+    branch before the skip-connection add, as in the CBAM paper."""
+    residual = x
+    out = block.relu(block.bn1(block.conv1(x)))
+    out = block.relu(block.bn2(block.conv2(out)))
+    out = block.bn3(block.conv3(out))
+    if getattr(block, "cbam", None) is not None:
+        out = block.cbam(out, clin)
+    if block.downsample is not None:
+        residual = block.downsample(x)
+    out = out + residual
+    return block.relu(out)
+
+
+class ResNetBranchCBAM(ResNetBranch):
+    """ResNetBranch with clinically conditioned CBAM modules.
+
+    The pretrained layers keep their original parameter names; CBAM modules are
+    registered as new children (layerN.i.cbam.* or post_cbam.*), so a baseline
+    checkpoint still loads into the backbone and simply has no CBAM weights.
+    """
+
+    def __init__(self, block, layers, in_chans, clin_dim, cbam_cfg):
+        super().__init__(block, layers, in_chans)
+        self.placement = cbam_cfg["placement"]
+        self.post_cbam = None
+
+        if self.placement == "blocks":
+            for stage_idx in cbam_cfg["stages"]:
+                for blk in getattr(self, STAGES[stage_idx - 1]):
+                    blk.cbam = ClinicalCBAM(blk.bn3.num_features, clin_dim, cbam_cfg)
+        elif self.placement == "post":
+            self.post_cbam = ClinicalCBAM(self.layer4[-1].bn3.num_features, clin_dim, cbam_cfg)
+        else:
+            raise ValueError(f"cbam.placement must be 'blocks' or 'post', got {self.placement!r}")
+
+    def cbam_modules(self):
+        return [m for m in self.modules() if isinstance(m, ClinicalCBAM)]
+
+    def forward(self, x, clin):
+        out = self.maxpool(self.relu(self.bn1(self.conv1(x))))
+        for stage in STAGES:
+            for blk in getattr(self, stage):
+                out = _bottleneck_forward(blk, out, clin)
+        if self.post_cbam is not None:
+            out = self.post_cbam(out, clin)
         out = self.avgpool(out)
-        out = out.view(out.size(0), -1)
-        return out
+        return out.view(out.size(0), -1)
+
+
+def _cbam_config(config):
+    cfg = dict(DEFAULT_CBAM_CONFIG)
+    cfg.update(config.get("cbam") or {})
+    stages = cfg["stages"]
+    if cfg["placement"] == "blocks" and (not stages or not set(stages) <= {1, 2, 3, 4}):
+        raise ValueError(f"cbam.stages must be a non-empty subset of [1, 2, 3, 4], got {stages!r}")
+    if cfg["kernel_size"] % 2 != 1:
+        raise ValueError(f"cbam.kernel_size must be odd, got {cfg['kernel_size']}")
+    return cfg
 
 
 class TriSeriesModel(Base3DResNet):
@@ -116,6 +195,7 @@ class TriSeriesModel(Base3DResNet):
 
     def __init__(self, config):
         super().__init__(config)
+        self.cbam_cfg = _cbam_config(config)
         self.stack_adc_b1500 = config["training"]["stack_adc_b1500"]
         # Accept series either as SeriesType enums or as the plain strings
         # train.py passes straight through from the YAML config.
@@ -145,22 +225,20 @@ class TriSeriesModel(Base3DResNet):
         self.feature_dim = 0
         self._dwi_branch_added = False
 
+        def make_branch(in_chans):
+            return ResNetBranchCBAM(Bottleneck, [3, 4, 6, 3], in_chans, clin_dim, self.cbam_cfg)
+
         for key in self.series:
             if self.stack_adc_b1500 and key in self.DWI_KEYS:
                 if not self._dwi_branch_added:
-                    branch_name = "adc_b1500"
-                    self.branches[branch_name] = ResNetBranchEarly(
-                        Bottleneck, [3, 4, 6, 3], 2, tabular_dim=clin_dim
-                    )
-                    self.branch_specs.append((branch_name, self.DWI_KEYS))
-                    self.feature_dim += 2048  # fixed: was 2065, now 2048
+                    self.branches["adc_b1500"] = make_branch(2)
+                    self.branch_specs.append(("adc_b1500", self.DWI_KEYS))
+                    self.feature_dim += 2048
                     self._dwi_branch_added = True
                 continue
-
-            branch_name = key
-            self.branches[branch_name] = ResNetBranchEarly(Bottleneck, [3, 4, 6, 3], 1, tabular_dim=clin_dim)
-            self.branch_specs.append((branch_name, (key,)))
-            self.feature_dim += 2048  # fixed: was 2065, now 2048
+            self.branches[key] = make_branch(1)
+            self.branch_specs.append((key, (key,)))
+            self.feature_dim += 2048
 
         self.dropout = nn.Dropout(p=config["hyperparameters"]["dropout"])
         self.fc = nn.Sequential(
@@ -185,20 +263,51 @@ class TriSeriesModel(Base3DResNet):
             if "b1500" in self.branches:
                 self.resnet_dual_branch2 = self.branches["b1500"]
 
-    def on_train_start(self):
-        print("Freezing ResNet branches (permanent)...")
-        for name, param in self.named_parameters():
-            if "channel_attn" in name or "spatial_attn" in name or name.startswith("fc"):
+        self._apply_freeze(verbose=True)
+
+    # ------------------------------------------------------------------ #
+    # Freezing: only the CBAM modules and the fc head train.
+    # ------------------------------------------------------------------ #
+    def _cbam_modules(self):
+        return [m for branch in self.branches.values() for m in branch.cbam_modules()]
+
+    def _apply_freeze(self, verbose=False):
+        # By module, not by parameter name: the branches are also registered
+        # under alias attributes (resnet_single_branch, ...), and
+        # named_parameters() reports shared parameters under the alias only.
+        for param in self.parameters():
+            param.requires_grad = False
+        for module in [self.fc, *self._cbam_modules()]:
+            for param in module.parameters():
                 param.requires_grad = True
-            else:
-                param.requires_grad = False
-        for branch in self.branches.values():
-            branch.conv1.eval()
-            branch.bn1.eval()
-            branch.layer1.eval()
-            branch.layer2.eval()
-            branch.layer3.eval()
-            branch.layer4.eval()
+        if verbose:
+            n_cbam = sum(p.numel() for m in self._cbam_modules() for p in m.parameters())
+            n_train = sum(p.numel() for p in self.parameters() if p.requires_grad)
+            where = (
+                f"every block of stages {self.cbam_cfg['stages']}"
+                if self.cbam_cfg["placement"] == "blocks"
+                else "layer4 output"
+            )
+            print(f"[CBAM] {len(self._cbam_modules())} modules ({where}), "
+                  f"identity_init={self.cbam_cfg['identity_init']}, "
+                  f"spatial_clinical={self.cbam_cfg['spatial_clinical']}; "
+                  f"CBAM params={n_cbam:,}, trainable params={n_train:,}")
+
+    def on_train_start(self):
+        print("Freezing ResNet backbone and clinical encoder; training CBAM + fc...")
+        self._apply_freeze()
+
+    def train(self, mode=True):
+        # Lightning calls .train() again after every validation loop; keep the
+        # frozen backbone (and its BatchNorm running stats) in eval mode. CBAM
+        # has no BatchNorm or dropout, so its mode only matters for clarity.
+        super().train(mode)
+        if not hasattr(self, "branches"):  # called before __init__ finished
+            return self
+        self.branches.eval()
+        for module in self._cbam_modules():
+            module.train(mode)
+        return self
 
     def forward(self, data_dict, tabular_features):
         clinical_emb = self.clinical_encoder(tabular_features)
