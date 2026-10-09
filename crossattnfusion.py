@@ -27,6 +27,8 @@ Config (all optional), under a top-level `xattn:` section:
     heads                                                           (default 4)
     layers               number of fusion blocks                    (default 1)
     dropout                                                         (default 0.1)
+    tap                  "layer4" | "layer2": which feature map becomes the
+                         image tokens (side branch; backbone unchanged) (default "layer4")
     kv_pool              avg-pool factor on (H, W) before tokenizing (default 1)
     residual_query       true: clinical tokens keep their own content
                          false: first block's output is ONLY attended image
@@ -35,7 +37,8 @@ Config (all optional), under a top-level `xattn:` section:
     feature_mask_prob    per-feature prob. of replacing a clinical token with a
                          learned [MASK] token during training           (default 0.0)
     train_fc             also fine-tune the baseline fc                  (default false)
-    n_features                                                       (default 37)
+    n_features           defaults to data.tabular_dims, which train.py fills
+                         from the tabular CSV
 
 Run with: python train.py --config configs/crossattn.yaml
 """
@@ -46,14 +49,30 @@ import torch.nn.functional as F
 from src.models.ResNet3D.base_3Dresnet import Base3DResNet, Bottleneck, ResNetBranch
 
 
-def branch_feature_map(branch, x):
-    """ResNetBranch.forward without avgpool/flatten."""
+TAP_CHANNELS = {"layer2": 512, "layer4": 2048}
+
+
+def branch_forward(branch, x, tap="layer4"):
+    """Run a ResNetBranch once; return (tapped feature map, pooled layer4 vector).
+
+    The tapped map is only read by the side branch, never modified, so the
+    pooled vector is exactly what the plain ResNetBranch.forward returns.
+    """
     out = branch.relu(branch.bn1(branch.conv1(x)))
     out = branch.maxpool(out)
     out = branch.layer1(out)
     out = branch.layer2(out)
+    tapped = out
     out = branch.layer3(out)
-    return branch.layer4(out)
+    out = branch.layer4(out)
+    if tap == "layer4":
+        tapped = out
+    return tapped, out.mean(dim=(2, 3, 4))
+
+
+def series_keys(config):
+    # train.py passes config["data"]["series"] through as plain strings
+    return [s if isinstance(s, str) else s.value["key"] for s in config["data"]["series"]]
 
 
 class ClinicalTokenizer(nn.Module):
@@ -135,10 +154,8 @@ class CrossAttnFusionModel(Base3DResNet):
         self.feature_mask_prob = cfg.get("feature_mask_prob", 0.0)
         self.train_fc = cfg.get("train_fc", False)
 
-        # Accept series either as SeriesType enums or as the plain strings train.py passes straight through from the YAML config.
-        self.series = [
-            s if isinstance(s, str) else s.value["key"] for s in config["data"]["series"]
-        ]
+        self.tap = cfg.get("tap", "layer4")
+        self.series = series_keys(config)
         assert len(self.series) == 3
         self.stack_adc_b1500 = config["training"]["stack_adc_b1500"] and set(
             self.DWI_KEYS
@@ -173,9 +190,10 @@ class CrossAttnFusionModel(Base3DResNet):
             self.resnet_dual_branch1 = self.branches["adc_b1500"]
 
         # ---- cross-attention fusion ----
-        self.clin_tok = ClinicalTokenizer(cfg.get("n_features", 37), dim)
+        n_features = cfg.get("n_features") or config["data"].get("tabular_dims") or 37
+        self.clin_tok = ClinicalTokenizer(n_features, dim)
         self.img_tok = nn.ModuleDict({
-            name: ImageTokenizer(2048, dim, cfg.get("kv_pool", 1))
+            name: ImageTokenizer(TAP_CHANNELS[self.tap], dim, cfg.get("kv_pool", 1))
             for name, _ in self.branch_specs
         })
         rq = cfg.get("residual_query", True)
@@ -229,8 +247,8 @@ class CrossAttnFusionModel(Base3DResNet):
         for name, keys in self.branch_specs:
             inputs = torch.cat([data_dict[k] for k in keys], dim=1)
             with torch.no_grad():
-                fmap = branch_feature_map(self.branches[name], inputs)
-            pooled.append(fmap.mean(dim=(2, 3, 4)))
+                fmap, vec = branch_forward(self.branches[name], inputs, self.tap)
+            pooled.append(vec)
             tokens, grid = self.img_tok[name](fmap)
             kv.append(tokens)
             grids.append((name, tuple(grid)))

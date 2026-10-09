@@ -27,6 +27,7 @@ xattn:
   feature_mask_prob: 0.0   # try 0.1 once the basic model trains
   train_fc: false          # keep the baseline image head frozen
   n_features: 27           # must match the number of clinical columns in tabular_csv
+  tap: 4
 
 training:
   gpu: True
