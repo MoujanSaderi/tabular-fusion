@@ -50,6 +50,7 @@ from aug11latefusionflat import LateFusionFlatFrozen as LateFusionFlatModel
 from aug11latefusionflat import LateFusionFlatLLRD
 from mlpclinical import ClinicalMLPModel
 from daftfusion import DAFTFusionModel
+from crossattnfusion import CrossAttnFusionModel
 
 
 MODEL_REGISTRY = {
@@ -59,6 +60,7 @@ MODEL_REGISTRY = {
     "latefusion_flat_llrd": LateFusionFlatLLRD,
     "clinical_mlp": ClinicalMLPModel,
     "daft": DAFTFusionModel,
+    "crossattn": CrossAttnFusionModel
 }
 
 # Models that never look at the imaging volumes, so an imaging checkpoint
