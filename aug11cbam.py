@@ -4,6 +4,8 @@ import torch.nn as nn
 from src.models.ResNet3D.base_3Dresnet import Base3DResNet
 from src.models.ResNet3D.base_3Dresnet import Bottleneck
 from src.models.ResNet3D.base_3Dresnet import ResNetBranch
+
+from aug11latefusionflat import ClinicalEncoder
 """
 Clinical features define how important each channel is for each specific patient. Our output 
 from this function is essentially 2048 numbers indicating how credibly important each channel is, and we just
@@ -77,46 +79,20 @@ class ClinicalSpatialAttention(nn.Module):
         return x * weights
 
 
-class FrozenClinicalEncoder(nn.Module):
-    def __init__(self, clinical_ckpt=None):
-        super().__init__()
-        self.fc1 = nn.Linear(37, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.2)
-        if clinical_ckpt is not None:
-            state = torch.load(clinical_ckpt, map_location='cpu')
-            self.fc1.weight.data = state['fc1.weight']
-            self.fc1.bias.data = state['fc1.bias']
-            self.fc2.weight.data = state['fc2.weight']
-            self.fc2.bias.data = state['fc2.bias']
-        for param in self.parameters():
-            param.requires_grad = False
-        self.eval()
-
-    def train(self, mode=True):
-        # keep frozen encoder permanently in eval mode (no dropout)
-        return super().train(False)
-
-    def forward(self, x):
-        out = self.relu(self.fc1(x))
-        out = self.dropout(out)
-        out = self.relu(self.fc2(out))
-        return out
-
-
 class ResNetBranchEarly(ResNetBranch):
-    def __init__(self, block, layers, in_chans, tabular_dim=64, clinical_ckpt=None):
+    """ResNet branch with clinical CBAM after layer4. The clinical embedding is
+    computed once by the model-level ClinicalEncoder and passed in, so every
+    branch attends with the same (loaded) encoder output."""
+
+    def __init__(self, block, layers, in_chans, tabular_dim=64):
         super().__init__(block, layers, in_chans)
         self.channel_attn = ClinicalChannelAttention(
             channel_dim=2048,
             tabular_dim=tabular_dim
         )
         self.spatial_attn = ClinicalSpatialAttention(tabular_dim=tabular_dim)
-        self.clinical_encoder = FrozenClinicalEncoder(clinical_ckpt=clinical_ckpt)
 
-    def forward(self, x, tabular_features):
-        clinical_emb = self.clinical_encoder(tabular_features)
+    def forward(self, x, clinical_emb):
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
@@ -140,10 +116,24 @@ class TriSeriesModel(Base3DResNet):
 
     def __init__(self, config):
         super().__init__(config)
-        clinical_ckpt = config["model_weights"].get("clinical_ckpt", None)
         self.stack_adc_b1500 = config["training"]["stack_adc_b1500"]
-        self.series = [series.value["key"] for series in config["data"]["series"]]
+        # Accept series either as SeriesType enums or as the plain strings
+        # train.py passes straight through from the YAML config.
+        self.series = [
+            s if isinstance(s, str) else s.value["key"] for s in config["data"]["series"]
+        ]
         assert len(self.series) == 3
+
+        # Frozen clinical MLP encoder loaded from model_weights.clinical_ckpt,
+        # shared with aug11latefusionflat / mlpclinical so the architecture and
+        # checkpoint format can't drift. tabular_dims is filled in by train.py
+        # from the tabular CSV; if absent it falls back to the checkpoint's width.
+        self.clinical_encoder = ClinicalEncoder(
+            in_dims=config["data"].get("tabular_dims"),
+            clinical_ckpt=config["model_weights"].get("clinical_ckpt"),
+            frozen=True,
+        )
+        clin_dim = self.clinical_encoder.out_dim
 
         series_set = set(self.series)
         self.stack_adc_b1500 = self.stack_adc_b1500 and set(self.DWI_KEYS).issubset(
@@ -160,7 +150,7 @@ class TriSeriesModel(Base3DResNet):
                 if not self._dwi_branch_added:
                     branch_name = "adc_b1500"
                     self.branches[branch_name] = ResNetBranchEarly(
-                        Bottleneck, [3, 4, 6, 3], 2, clinical_ckpt=clinical_ckpt
+                        Bottleneck, [3, 4, 6, 3], 2, tabular_dim=clin_dim
                     )
                     self.branch_specs.append((branch_name, self.DWI_KEYS))
                     self.feature_dim += 2048  # fixed: was 2065, now 2048
@@ -168,7 +158,7 @@ class TriSeriesModel(Base3DResNet):
                 continue
 
             branch_name = key
-            self.branches[branch_name] = ResNetBranchEarly(Bottleneck, [3, 4, 6, 3], 1, clinical_ckpt=clinical_ckpt)
+            self.branches[branch_name] = ResNetBranchEarly(Bottleneck, [3, 4, 6, 3], 1, tabular_dim=clin_dim)
             self.branch_specs.append((branch_name, (key,)))
             self.feature_dim += 2048  # fixed: was 2065, now 2048
 
@@ -211,13 +201,14 @@ class TriSeriesModel(Base3DResNet):
             branch.layer4.eval()
 
     def forward(self, data_dict, tabular_features):
+        clinical_emb = self.clinical_encoder(tabular_features)
         features = []
         for branch_name, keys in self.branch_specs:
             if len(keys) > 1:
                 inputs = torch.cat([data_dict[k] for k in keys], dim=1)
             else:
                 inputs = data_dict[keys[0]]
-            features.append(self.branches[branch_name](inputs, tabular_features))
+            features.append(self.branches[branch_name](inputs, clinical_emb))
 
         x = torch.cat(features, dim=1)
         out = self.fc(x)
