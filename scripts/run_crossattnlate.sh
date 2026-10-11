@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name cross-attn-layer2-late-v1c
+#SBATCH --job-name cross-attn-layer2-late-v2
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
 #SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/script_logs/job-%j-%x.log
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=50GB
 #SBATCH --time=2-23:00:00
