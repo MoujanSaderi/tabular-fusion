@@ -53,7 +53,6 @@ from daftfusion import DAFTFusionModel
 from crossattnfusion import CrossAttnFusionModel
 from crossattnlate import CrossAttnLateFusion
 
-LIMIT_SAMPLES = 32
 
 MODEL_REGISTRY = {
     "cbam": CBAMModel,
@@ -270,9 +269,11 @@ def main():
     ].get("class_weights"):
         config["training"]["class_weights"] = train_dataset.class_weights
     
-    if LIMIT_SAMPLES is not None:
-        limited_indices = list(range(LIMIT_SAMPLES))
-        train_dataset = Subset(train_dataset, limited_indices)
+    # Optional overfit test: train on only the first N training exams.
+    limit_samples = config["training"].get("limit_samples")
+    if limit_samples:
+        train_dataset = Subset(train_dataset, list(range(int(limit_samples))))
+        print(f"[overfit test] training on the first {limit_samples} exams only")
 
     train_loader = build_dataloader(train_dataset, config, shuffle=True)
     val_loader = build_dataloader(val_dataset, config, shuffle=False)
@@ -332,6 +333,8 @@ def main():
         max_epochs=int(config["training"]["epochs"]),
         default_root_dir=save_dir,
         num_sanity_val_steps=0,
+        # Lightning writes step-level metrics every N steps (default 50).
+        log_every_n_steps=int(config["logging"].get("log_every_n_steps", 50)),
     )
     # Optional, mainly for fine-tuning the encoders (latefusion_flat_llrd),
     # where activations for the full ResNets must be kept for backprop.
