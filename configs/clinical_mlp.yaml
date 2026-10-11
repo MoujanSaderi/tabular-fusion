@@ -15,8 +15,8 @@
 # NOTE: update save_weights_dir / preds_dir to a directory you can write to.
 
 paths:
-  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_April4_testpatient_removed_relabeled.csv
-  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_April4_testpatient_removed_relabeled.csv
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
   test_csv: null
   data_dirs:
     - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
@@ -45,7 +45,7 @@ data:
   pirads_cutoff: 3
   mask_prostate: False
   normalize: true
-  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv' # configs/clinical_mlp.yaml #/gpfs/data/prostatelab/Lakshita/cspca_features_v4.csv # required
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv' 
   tabular_dims: 27
 
 hyperparameters:
@@ -58,7 +58,7 @@ hyperparameters:
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_fixed_v1
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_v1
   # No imaging backbone, so there is nothing to load; train.py ignores
   # model_ckpt for clinical_mlp even if these are set.
   load_weights: False
@@ -69,13 +69,13 @@ model_weights:
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: clinical_mlp_fixed_v1
+  run_name: clinical_mlp_pjsplits_v1
   plot_roc: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963355-clinical_mlp_v1-2026-09-30.log 
   plot_confusion_matrix: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963721-clinical_mlp_v1-2026-09-30.log
   plot_pirads_breakdown: True
 
 debugging:
   debug: False
-  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_fixed_v1
+  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_v1
   max_test_volumes: -1
   compute_gradcam: False
