@@ -59,6 +59,7 @@ class ExamH5Dataset(Dataset):
         tabular_csv = None,
         load_volumes=True,
         train_csv_path=None,
+        add_missing_indicator=False,
     ):
         """
         metadata_csv: path to csv containing labels and metadata for each
@@ -101,6 +102,7 @@ class ExamH5Dataset(Dataset):
         self.dce_dirs = [Path(d) for d in dce_dirs] if dce_dirs is not None else []
         self._dce_lookup = {}
         self.load_volumes = load_volumes
+        self.add_missing_indicator = add_missing_indicator
         self.tabular_features = {}
         # Width of the clinical feature vector, taken from the CSV itself so the
         # zero-filled fallback for exams missing from it always matches the real
@@ -124,14 +126,23 @@ class ExamH5Dataset(Dataset):
                 std = tab_df.loc[train_rows, cont_cols].std().replace(0, 1).fillna(1)
                 tab_df[cont_cols] = (tab_df[cont_cols] - mean) / std
 
+            # Rows present in the CSV but with every feature missing.
+            # Must be computed before fillna.
+            row_all_missing = tab_df[feature_cols].isna().all(axis=1).to_numpy()
+
             # Missing values become 0, which is the training mean for standardized columns.
             tab_df[feature_cols] = tab_df[feature_cols].fillna(0)
 
-            self.num_tabular_features = len(feature_cols)
-            for _, row in tab_df.iterrows():
-                acc = int(row["AccessionNumber"])
-                features = row[feature_cols].values.astype(float)
-                self.tabular_features[acc] = features
+            feats = tab_df[feature_cols].to_numpy(dtype=float)
+            if self.add_missing_indicator:
+                # Last column: 1 = no clinical data for this exam, 0 = has data.
+                feats = np.concatenate(
+                    [feats, row_all_missing[:, None].astype(float)], axis=1
+                )
+
+            self.num_tabular_features = feats.shape[1]
+            accs = tab_df["AccessionNumber"].astype(int).to_numpy()
+            self.tabular_features = dict(zip(accs, feats))
 
         if not self.data_dirs:
             raise ValueError("At least one data directory must be provided.")
@@ -268,7 +279,6 @@ class ExamH5Dataset(Dataset):
         variant_index = index % self.num_variants #varient index = index
 
         #convert the following into numbers
-
         accession_number = int(self.df_metadata.iloc[case_index]["AccessionNumber"])
         patient_id = int(self.df_metadata.iloc[case_index]["PatientID"])
         max_pirads_from_csv = int(self.df_metadata.iloc[case_index]["maxPIRADS"])
@@ -281,6 +291,8 @@ class ExamH5Dataset(Dataset):
             tabular_tensor = torch.FloatTensor(tabular_features)
         else:
             tabular_tensor = torch.zeros(self.num_tabular_features, dtype=torch.float32)
+            if self.add_missing_indicator and self.num_tabular_features > 0:
+                tabular_tensor[-1] = 1.0
 
         if not self.load_volumes:
             # Tabular-only model: don't locate, open or read any H5 file.
@@ -404,116 +416,119 @@ class ExamH5Dataset(Dataset):
         return self.df_metadata.shape[0] * self.num_variants
 
 
-def load_data(
-    data_csv,
-    data_dirs,
-    dce_dirs=None,
-    series=[SeriesType.AXT2, SeriesType.ADC, SeriesType.B1500],
-    model_type="3D",
-    augment="none",
-    noise_sigma_range=(0.0, 0.15),
-    downsample_factors=None,
-    pirads_cutoff=None,
-    mask_prostate=False,
-    device="cpu",
-    batch_size=4,
-    num_workers=4,
-    shuffle=False,
-    weighted_sample=False,
-    multitask_sampler=False,
-    mode="train",
-    normalize=True,
-    target="pirads",
-    axt2_key="axt2",
-    dwi_suffices=None,
-    tabular_csv = None
-):
-    """
-    data_csv: path to csv containing labels and metadata for each accession
-        number
-    data_dirs: directories containing h5 files. Files in these directories
-        should be a set containing the accession numbers in data_csv
-    dce_dirs: optional list of directories containing DCE h5 files when they
-        reside outside of ``data_dirs``
-    series: list of series to include in the dataset. Default is
-        [SeriesType.AXT2, SeriesType.ADC, SeriesType.B1500]
-    model_type: '3D' or '2D' model
-    augment (str): augmentation mode 'none', 'standard', 'noise', or 'downsample'
-    noise_sigma_range (tuple): min and max sigma for noise augmentation
-    downsample_factors (list[int]): factors for k-space downsampling
-    pirads_cutoff: the PIRADS score to above which the label is positive.
-        pirads_cutoff=None will leave labels as PI-RADS Score. Default is None.
-    mask_prostate (bool): Indicates whether or not to mask the prostate
-    device: device to load tensors on, "cpu" or "cuda:0"
-    batch_size: batch size for data loader
-    num_workers: number of workers for data loader
-    shuffle: boolean for whether to shuffle data loader
-    weighted_sample: boolean for whether to use weighted sampling
-    normalize (bool): Apply z-score normalization to each volume
-    target (str): "pirads" to train on PIRADS > cutoff, "gleason" to train on
-        Gleason score > 6, or "tstage" to train on extraprostatic extension
-        where positive labels correspond to ``ordinal_label >= 2``. When
-        ``target='gleason'`` the dataset is filtered so only cases with valid
-        Gleason labels remain.
+# #I'm not sure what uses this code + it hasn't been updated to do train-split standardization, so comment it out to check
+# def load_data(
+#     data_csv,
+#     data_dirs,
+#     dce_dirs=None,
+#     series=[SeriesType.AXT2, SeriesType.ADC, SeriesType.B1500],
+#     model_type="3D",
+#     augment="none",
+#     noise_sigma_range=(0.0, 0.15),
+#     downsample_factors=None,
+#     pirads_cutoff=None,
+#     mask_prostate=False,
+#     device="cpu",
+#     batch_size=4,
+#     num_workers=4,
+#     shuffle=False,
+#     weighted_sample=False,
+#     multitask_sampler=False,
+#     mode="train",
+#     normalize=True,
+#     target="pirads",
+#     axt2_key="axt2",
+#     dwi_suffices=None,
+#     tabular_csv = None,
+#     add_missing_indicator=False,
+# ):
+#     """
+#     data_csv: path to csv containing labels and metadata for each accession
+#         number
+#     data_dirs: directories containing h5 files. Files in these directories
+#         should be a set containing the accession numbers in data_csv
+#     dce_dirs: optional list of directories containing DCE h5 files when they
+#         reside outside of ``data_dirs``
+#     series: list of series to include in the dataset. Default is
+#         [SeriesType.AXT2, SeriesType.ADC, SeriesType.B1500]
+#     model_type: '3D' or '2D' model
+#     augment (str): augmentation mode 'none', 'standard', 'noise', or 'downsample'
+#     noise_sigma_range (tuple): min and max sigma for noise augmentation
+#     downsample_factors (list[int]): factors for k-space downsampling
+#     pirads_cutoff: the PIRADS score to above which the label is positive.
+#         pirads_cutoff=None will leave labels as PI-RADS Score. Default is None.
+#     mask_prostate (bool): Indicates whether or not to mask the prostate
+#     device: device to load tensors on, "cpu" or "cuda:0"
+#     batch_size: batch size for data loader
+#     num_workers: number of workers for data loader
+#     shuffle: boolean for whether to shuffle data loader
+#     weighted_sample: boolean for whether to use weighted sampling
+#     normalize (bool): Apply z-score normalization to each volume
+#     target (str): "pirads" to train on PIRADS > cutoff, "gleason" to train on
+#         Gleason score > 6, or "tstage" to train on extraprostatic extension
+#         where positive labels correspond to ``ordinal_label >= 2``. When
+#         ``target='gleason'`` the dataset is filtered so only cases with valid
+#         Gleason labels remain.
 
-    """
-    if isinstance(data_dirs, (str, Path)):
-        data_dirs = [data_dirs] #Just makes sure data_dirs is always a list even if someone passed a single path string.
+#     """
+#     if isinstance(data_dirs, (str, Path)):
+#         data_dirs = [data_dirs] #Just makes sure data_dirs is always a list even if someone passed a single path string.
 
-    if dce_dirs is None:
-        dce_dirs = []
-    elif isinstance(dce_dirs, (str, Path)):
-        dce_dirs = [dce_dirs]
+#     if dce_dirs is None:
+#         dce_dirs = []
+#     elif isinstance(dce_dirs, (str, Path)):
+#         dce_dirs = [dce_dirs]
 
-    dataset = ExamH5Dataset(
-        data_csv,
-        data_dirs,
-        series,
-        model_type,
-        augment,
-        noise_sigma_range,
-        downsample_factors,
-        pirads_cutoff,
-        mask_prostate,
-        device=device,
-        mode=mode,
-        normalize=normalize,
-        target=target,
-        axt2_key=axt2_key,
-        dwi_suffices=dwi_suffices,
-        dce_dirs=dce_dirs,
-        tabular_csv = tabular_csv
-    )
+#     dataset = ExamH5Dataset(
+#         data_csv,
+#         data_dirs,
+#         series,
+#         model_type,
+#         augment,
+#         noise_sigma_range,
+#         downsample_factors,
+#         pirads_cutoff,
+#         mask_prostate,
+#         device=device,
+#         mode=mode,
+#         normalize=normalize,
+#         target=target,
+#         axt2_key=axt2_key,
+#         dwi_suffices=dwi_suffices,
+#         dce_dirs=dce_dirs,
+#         tabular_csv = tabular_csv,
+#         add_missing_indicator=add_missing_indicator,
+#     )
 
-    if weighted_sample: #Use a weighted sampler — oversamples the minority class (positive cancer cases) so the model sees them more often. Helps with class imbalance.
-        sampler = get_sampler(dataset, pirads_cutoff) #Creates the weighted sampler object that knows how to oversample positives.
-        data_loader = DataLoader( #Pass the sampler to the dataloader. shuffle=False because the sampler is already handling the ordering — you don't want both.
-            dataset,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            shuffle=False,
-            sampler=sampler,
-            generator=torch.Generator(device="cuda"), #Random number generator on the GPU for reproducibility.
-            pin_memory=True,
-        )
-    else:
-        if multitask_sampler:
-            sampler = DualLabelBiasedSampler(dataset, batch_size=batch_size)
-            data_loader = DataLoader(
-                dataset,
-                batch_sampler=sampler,
-                num_workers=num_workers,
-                generator=torch.Generator(device="cuda"),
-                pin_memory=True,
-            )
-        else:
-            data_loader = DataLoader(
-                dataset,
-                batch_size=batch_size,
-                num_workers=num_workers,
-                shuffle=shuffle,
-                generator=torch.Generator(device="cuda"),
-                pin_memory=True,
-            )
+#     if weighted_sample: #Use a weighted sampler — oversamples the minority class (positive cancer cases) so the model sees them more often. Helps with class imbalance.
+#         sampler = get_sampler(dataset, pirads_cutoff) #Creates the weighted sampler object that knows how to oversample positives.
+#         data_loader = DataLoader( #Pass the sampler to the dataloader. shuffle=False because the sampler is already handling the ordering — you don't want both.
+#             dataset,
+#             batch_size=batch_size,
+#             num_workers=num_workers,
+#             shuffle=False,
+#             sampler=sampler,
+#             generator=torch.Generator(device="cuda"), #Random number generator on the GPU for reproducibility.
+#             pin_memory=True,
+#         )
+#     else:
+#         if multitask_sampler:
+#             sampler = DualLabelBiasedSampler(dataset, batch_size=batch_size)
+#             data_loader = DataLoader(
+#                 dataset,
+#                 batch_sampler=sampler,
+#                 num_workers=num_workers,
+#                 generator=torch.Generator(device="cuda"),
+#                 pin_memory=True,
+#             )
+#         else:
+#             data_loader = DataLoader(
+#                 dataset,
+#                 batch_size=batch_size,
+#                 num_workers=num_workers,
+#                 shuffle=shuffle,
+#                 generator=torch.Generator(device="cuda"),
+#                 pin_memory=True,
+#             )
 
-    return data_loader
+#     return data_loader
