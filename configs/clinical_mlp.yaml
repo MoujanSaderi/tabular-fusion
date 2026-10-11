@@ -46,8 +46,8 @@ data:
   mask_prostate: False
   normalize: true
   tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv' 
-  tabular_dims: 27
-  add_missing_indicator: False
+  tabular_dims: 28
+  add_missing_indicator: True
 
 hyperparameters:
   learning_rate: 0.0001
