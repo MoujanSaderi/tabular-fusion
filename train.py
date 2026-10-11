@@ -36,7 +36,7 @@ import pytorch_lightning as pl
 import torch
 import yaml
 from pytorch_lightning.loggers import WandbLogger
-from torch.utils.data import DataLoader, default_collate
+from torch.utils.data import DataLoader, default_collate, Subset
 
 from src.data.loader import ExamH5Dataset
 from src.models.ResNet3D.lakshita_earlyfusion_construct_resnet3d import (
@@ -50,6 +50,8 @@ from aug11latefusionflat import LateFusionFlatFrozen as LateFusionFlatModel
 from aug11latefusionflat import LateFusionFlatLLRD
 from mlpclinical import ClinicalMLPModel
 from daftfusion import DAFTFusionModel
+from crossattnfusion import CrossAttnFusionModel
+from crossattnlate import CrossAttnLateFusion
 
 
 MODEL_REGISTRY = {
@@ -59,6 +61,8 @@ MODEL_REGISTRY = {
     "latefusion_flat_llrd": LateFusionFlatLLRD,
     "clinical_mlp": ClinicalMLPModel,
     "daft": DAFTFusionModel,
+    "crossattn": CrossAttnFusionModel,
+    "crossattn_late": CrossAttnLateFusion
 }
 
 # Models that never look at the imaging volumes, so an imaging checkpoint
@@ -129,6 +133,7 @@ def build_dataset(csv_path, config, mode, series):
 
 
 def build_dataloader(dataset, config, shuffle):
+
     return DataLoader(
         dataset,
         batch_size=config["training"]["batch_size"],
@@ -263,6 +268,12 @@ def main():
         "training"
     ].get("class_weights"):
         config["training"]["class_weights"] = train_dataset.class_weights
+    
+    # Optional overfit test: train on only the first N training exams.
+    limit_samples = config["training"].get("limit_samples")
+    if limit_samples:
+        train_dataset = Subset(train_dataset, list(range(int(limit_samples))))
+        print(f"[overfit test] training on the first {limit_samples} exams only")
 
     train_loader = build_dataloader(train_dataset, config, shuffle=True)
     val_loader = build_dataloader(val_dataset, config, shuffle=False)
@@ -322,6 +333,8 @@ def main():
         max_epochs=int(config["training"]["epochs"]),
         default_root_dir=save_dir,
         num_sanity_val_steps=0,
+        # Lightning writes step-level metrics every N steps (default 50).
+        log_every_n_steps=int(config["logging"].get("log_every_n_steps", 50)),
     )
     # Optional, mainly for fine-tuning the encoders (latefusion_flat_llrd),
     # where activations for the full ResNets must be kept for backprop.
