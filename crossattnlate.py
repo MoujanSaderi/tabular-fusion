@@ -21,6 +21,15 @@ BEYOND late fusion.
 Config: the same `xattn:` section as crossattnfusion.py, plus
     train_head      also fine-tune img_proj + fc                       (default false)
     head_lr_scale   LR multiplier for the head if train_head            (default 0.1)
+    side_lr         learning rate for the side branch       (default: hyperparameters.learning_rate)
+    center_delta    remove the uniform part of the correction, so it can only
+                    change how patients are ranked, not shift everyone
+                    together (see LogOddsCorrection)                    (default true)
+    delta_init_std  init std of the correction's output layer; 0 = exact
+                    zero-init. A small non-zero value shortens the "dead" phase
+                    where upstream layers get almost no gradient       (default 0.0)
+    lr_monitor      metric ReduceLROnPlateau watches: "val_auc" (mode max) or
+                    "val_loss" (mode min)                               (default "val_auc")
 residual_query defaults to FALSE here: the late-fusion head already sees the
 clinical features, so the correction should carry image content selected by
 the clinical queries, not a second copy of the clinical signal.
@@ -36,6 +45,48 @@ from crossattnfusion import (
 )
 
 
+class LogOddsCorrection(nn.Module):
+    """Maps the CLS token to a correction of the positive-class log-odds.
+
+    Softmax only depends on the difference between the two logits, so the
+    correction is a single scalar d per patient, returned as (-d/2, +d/2).
+    With center=True, the part of d shared by every patient is removed: in
+    training by subtracting the batch mean (so the uniform part gets no
+    gradient at all), in eval by subtracting a running mean of the batch means
+    (so predictions don't depend on what else is in the batch). A uniform
+    shift can't change AUC, and in the overfit test it was what the branch
+    learned first, delaying the patient-specific part.
+    """
+
+    def __init__(self, dim, dropout, center=True, init_std=0.0, momentum=0.1):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.LayerNorm(dim), nn.Linear(dim, dim), nn.GELU(), nn.Dropout(dropout),
+        )
+        self.out = nn.Linear(dim, 1, bias=not center)
+        if init_std > 0:
+            nn.init.normal_(self.out.weight, std=init_std)
+        else:
+            nn.init.zeros_(self.out.weight)
+        if self.out.bias is not None:
+            nn.init.zeros_(self.out.bias)
+        self.center = center
+        self.momentum = momentum
+        self.register_buffer("running_mean", torch.zeros(1))
+
+    def forward(self, cls):
+        d = self.out(self.mlp(cls)).squeeze(-1)  # (B,)
+        if self.center:
+            if self.training and d.numel() > 1:
+                batch_mean = d.mean()
+                with torch.no_grad():
+                    self.running_mean.lerp_(batch_mean.detach(), self.momentum)
+                d = d - batch_mean
+            else:
+                d = d - self.running_mean
+        return torch.stack([-d / 2, d / 2], dim=1)  # (B, 2)
+
+
 class CrossAttnLateFusion(LateFusionFlatFrozen):
     SIDE_MODULES = ("clin_tok", "img_tok", "blocks", "delta_head")
 
@@ -48,7 +99,11 @@ class CrossAttnLateFusion(LateFusionFlatFrozen):
         self.tap = cfg.get("tap", "layer4")
         self.feature_mask_prob = cfg.get("feature_mask_prob", 0.0)
         self.train_head = cfg.get("train_head", False)
-        self.head_lr_scale = cfg.get("head_lr_scale", 0.1)
+        self.head_lr_scale = float(cfg.get("head_lr_scale", 0.1))
+        self.side_lr = cfg.get("side_lr")
+        self.lr_monitor = cfg.get("lr_monitor", "val_auc")
+        if self.lr_monitor not in ("val_auc", "val_loss"):
+            raise ValueError(f"xattn.lr_monitor must be val_auc or val_loss, got {self.lr_monitor}")
         self._pretrained_loaded = False
 
         n_features = cfg.get("n_features") or config["data"].get("tabular_dims") or 37
@@ -62,12 +117,13 @@ class CrossAttnLateFusion(LateFusionFlatFrozen):
             FusionBlock(dim, heads, dropout, residual_query=(rq or i > 0))
             for i in range(cfg.get("layers", 1))
         ])
-        self.delta_head = nn.Sequential(
-            nn.LayerNorm(dim), nn.Linear(dim, dim), nn.GELU(),
-            nn.Dropout(dropout), nn.Linear(dim, 2),
+        self.delta_head = LogOddsCorrection(
+            dim, dropout,
+            center=cfg.get("center_delta", True),
+            # float(): PyYAML reads exponent notation without a decimal point
+            # (e.g. 1e-3) as a string, not a number
+            init_std=float(cfg.get("delta_init_std", 0.0)),
         )
-        nn.init.zeros_(self.delta_head[-1].weight)
-        nn.init.zeros_(self.delta_head[-1].bias)
         self.last_attn = None
         self.last_grids = None
 
@@ -121,27 +177,33 @@ class CrossAttnLateFusion(LateFusionFlatFrozen):
         def grad_norm(modules):
             grads = [p.grad.norm() for m in modules for p in m.parameters() if p.grad is not None]
             return torch.norm(torch.stack(grads)) if grads else torch.tensor(0.0)
-        self.log("grad_norm_delta_out", grad_norm([self.delta_head[-1]]))
+        self.log("grad_norm_delta_out", grad_norm([self.delta_head.out]))
         self.log("grad_norm_upstream", grad_norm([self.clin_tok, self.img_tok, self.blocks]))
         self.log("delta_abs_mean", self.last_delta.abs().mean())
-        self.log("delta_out_weight_norm", self.delta_head[-1].weight.norm())
+        self.log("delta_out_weight_norm", self.delta_head.out.weight.norm())
         d = self.last_delta[:, 1] - self.last_delta[:, 0]   # correction to the positive-class log-odds
         self.log("delta_logodds_std", d.std())              # patient-specific part (can change ranking)
         self.log("delta_logodds_mean", d.mean())            # uniform part (can't change AUC)
+        self.log("delta_running_mean", self.delta_head.running_mean.squeeze())  # 0 unless center_delta is off
 
     def configure_optimizers(self):
         lr = self.hyperparams["learning_rate"]
+        side_lr = float(self.side_lr) if self.side_lr is not None else lr
         groups = [{"params": [p for m in self._side_modules() for p in m.parameters()],
-                   "lr": lr}]
+                   "lr": side_lr, "name": "side"}]
         if self.train_head:
             groups.append({"params": [p for m in self._head_modules() for p in m.parameters()],
-                           "lr": lr * self.head_lr_scale})
-        optimizer = torch.optim.AdamW(groups, lr, weight_decay=self.hyperparams["weight_decay"])
+                           "lr": lr * self.head_lr_scale, "name": "head"})
+        optimizer = torch.optim.AdamW(groups, side_lr, weight_decay=self.hyperparams["weight_decay"])
+        # val_auc: only cut the LR when ranking stops improving. val_loss also
+        # improves from recalibration alone, which made the scheduler cut the
+        # LR before the patient-specific correction had a chance to grow.
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=int(self.hyperparams["lr_patience"]),
+            optimizer, mode="max" if self.lr_monitor == "val_auc" else "min",
+            patience=int(self.hyperparams["lr_patience"]),
             factor=self.hyperparams["factor"], threshold=1e-4,
         )
-        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": self.lr_monitor}
 
     # ------------------------------------------------------------------ #
     def forward(self, data_dict, tabular_features):
