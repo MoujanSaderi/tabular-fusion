@@ -6,8 +6,8 @@
 # paths against your own cluster environment before running.
 
 paths:
-  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_April4_testpatient_removed_relabeled.csv
-  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_April4_testpatient_removed_relabeled.csv
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
   test_csv: null
   data_dirs:
     - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
@@ -26,12 +26,12 @@ xattn:
   kv_pool: 2
   residual_query: false          
   feature_mask_prob: 0.0
-  train_head: false
+  train_head: true
   head_lr_scale: 0.1             # only used if train_head: true
   side_lr: 1.0e-3                 # side branch LR (hyperparameters.learning_rate is the default)
   center_delta: true             # correction can only re-rank patients, not shift everyone
   delta_init_std: 1.0e-3          # small non-zero init to shorten the dead phase; 0 = exact zero-init
-  lr_monitor: val_loss            # scheduler watches val AUC (mode max) or val loss (min mode)
+  lr_monitor: val_auc            # scheduler watches val AUC (mode max) or val loss (min mode)
 
 training:
   gpu: True
@@ -54,35 +54,36 @@ data:
   mask_prostate: False
   normalize: true
   tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv'
-
+  tabular_dims: 28
+  add_missing_indicator: True
 hyperparameters:
   learning_rate: 1.0e-4
   weight_decay: 0.0
   max_patience: 40   # early stopping: epochs without a new best val AUC
-  lr_patience: 25     # LR scheduler: epochs without val AUC improvement before LR *= factor
+  lr_patience: 15     # LR scheduler: epochs without val AUC improvement before LR *= factor
   factor: 0.5
   dropout: 0.2       # dropout inside the frozen late-fusion fc, as it was trained
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-layer2-late-v2
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-late-layer2-pjsplits-v1
   load_weights: True
-  model_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_pb_fixed_v1/latefusion_pb_fixed_v1/latefusion_flat_epoch=03_best_val_pirads_auc=0.876.ckpt'
+  model_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_pjsplits_v1/latefusion_pjsplits_v1/latefusion_flat_epoch=07_best_val_pirads_auc=0.877.ckpt'
   disable_gradient: False
   # Not used for this model: the clinical encoder's weights come from model_ckpt.
-  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_fixed_v1/clinical_mlp_fixed_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.851.ckpt'
+  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_epoch=14_best_val_pirads_auc=0.851.ckpt'
 
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: cross-attn-layer2-late-v2
+  run_name: cross-attn-late-layer2-pjsplits-v1
   plot_roc: False
   plot_confusion_matrix: False
-  plot_pirads_breakdown: False
+  plot_pirads_breakdown: True
   log_every_n_steps: 50          # set to 1 for short overfit tests
 
 debugging:
   debug: False
-  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-layer2-late-v2'
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-late-layer2-pjsplits-v1'
   max_test_volumes: -1
   compute_gradcam: False
