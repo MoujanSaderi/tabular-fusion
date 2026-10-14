@@ -1,0 +1,98 @@
+# Phase 1 of CBAM + late fusion (cbamlate.CBAMLateFusion).
+# Starts from a trained CBAM checkpoint (backbone, CBAM modules, clinical
+# encoder, and CBAM's fc.0 as img_proj) and adds the same fusion MLP head as
+# late fusion, at default init. The CBAM modules stay FROZEN for the whole run;
+# only the head (img_proj + fc) trains. Answers: with the same head as late
+# fusion, does a direct clinical path add anything on top of fixed CBAM features?
+# Run with: python train.py --config configs/cbam_late_phase1.yaml
+#
+# The data section must match the CBAM run (same tabular_csv, tabular_dims and
+# add_missing_indicator), since the clinical encoder and gates were trained on it.
+#
+# Phase 2 is a separate run: configs/cbam_late_phase2.yaml, initialized from
+# the best checkpoint of this one.
+
+paths:
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
+  test_csv: null
+  data_dirs:
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
+  dce_dirs: []
+  extra_valid_csv: null
+
+model:
+  model: cbam_late
+
+# MUST match the cbam: section of the run that produced the CBAM checkpoint
+# (a mismatch is caught when the checkpoint loads).
+cbam:
+  placement: blocks        # blocks = CBAM in every bottleneck (original paper); post = once after layer4
+  stages: [2, 3, 4]     # with placement: blocks, which ResNet stages get CBAM
+  reduction: 16            # channel-MLP bottleneck ratio r
+  kernel_size: 7           # spatial-attention conv kernel (7x7x7)
+  spatial_clinical: film   # film = clinical scale/shift on the pooled maps; none = image-only spatial gate
+  identity_init: true      # 2*sigmoid gates, zero-init -> each module starts as the identity
+
+cbam_late:
+  init_from: cbam               # trained CBAM checkpoint (model_weights.model_ckpt)
+  train_attention: false        # CBAM frozen for the whole run; only the head trains
+  late_clinical_dropout: 0.0
+  log_gate_stats: true          # constant here (gates frozen): the reference for phase 2
+
+training:
+  gpu: True
+  epochs: 100
+  batch_size: 16
+  num_workers: 4
+  seed: 42
+  imbalance_strategy: weighted_loss
+  class_weights: null # computed automatically from the training set
+  stack_adc_b1500: True
+  mode: cspca # pirads | gleason | tstage | cspca
+
+data:
+  series: ["axt2", "adc", "b1500"]
+  augment: none
+  noise_sigma_range: [0.0, 0.0]
+  downsample_factors: [1]
+  pirads_cutoff: 3
+  mask_prostate: False
+  normalize: true
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv'
+  tabular_dims: 28
+  add_missing_indicator: True
+
+hyperparameters:
+  learning_rate: 0.0001
+  weight_decay: 0.02
+  max_patience: 20   # same as latefusion_flat.yaml
+  lr_patience: 8
+  factor: 0.5
+  dropout: 0.2       # in the fusion MLP, as in late fusion
+
+model_weights:
+  save_weights: True
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cbam_late_phase1_v1
+  load_weights: True
+  # TODO: the best checkpoint of the CBAM run (configs/cbam.yaml), e.g.
+  # /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cbam_pjsplits_v1/cbam-pjsplits-v1/cbam_epoch=XX_best_val_pirads_auc=0.XXX.ckpt
+  model_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cbam_pjsplits_v1/cbam-pjsplits-v1/cbam_epoch=12_best_val_pirads_auc=0.877.ckpt'
+  disable_gradient: False
+  # The clinical encoder is loaded from model_ckpt (what the gates were trained
+  # with); this one is only checked against it.
+  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_epoch=14_best_val_pirads_auc=0.851.ckpt'
+
+logging:
+  log_run: True
+  project_name: lakshita_multimodal
+  run_name: cbam-late-phase1-v1
+  plot_roc: False
+  plot_confusion_matrix: False
+  plot_pirads_breakdown: False
+
+debugging:
+  debug: False
+  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cbam-late-phase1-v1
+  max_test_volumes: -1
+  compute_gradcam: False

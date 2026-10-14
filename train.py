@@ -12,6 +12,7 @@ clinical encoder:
                         (DAFT block in the last layer4 bottleneck,
                         optionally plus late fusion; see daft.* config)
     clinical_mlp    -> mlpclinical.ClinicalMLPModel
+    cbam_late       -> cbamlate.CBAMLateFusion
 
 All four subclass src.models.ResNet3D.base_3Dresnet.Base3DResNet. The fusion
 models expect a frozen imaging backbone (loaded from model_weights.model_ckpt)
@@ -52,6 +53,7 @@ from mlpclinical import ClinicalMLPModel
 from daftfusion import DAFTFusionModel
 from crossattnfusion import CrossAttnFusionModel
 from crossattnlate import CrossAttnLateFusion
+from cbamlate import CBAMLateFusion
 
 
 MODEL_REGISTRY = {
@@ -62,7 +64,8 @@ MODEL_REGISTRY = {
     "clinical_mlp": ClinicalMLPModel,
     "daft": DAFTFusionModel,
     "crossattn": CrossAttnFusionModel,
-    "crossattn_late": CrossAttnLateFusion
+    "crossattn_late": CrossAttnLateFusion,
+    "cbam_late": CBAMLateFusion
 }
 
 # Models that never look at the imaging volumes, so an imaging checkpoint
