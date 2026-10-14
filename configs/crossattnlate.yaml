@@ -56,6 +56,7 @@ data:
   tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv'
   tabular_dims: 28
   add_missing_indicator: True
+
 hyperparameters:
   learning_rate: 1.0e-4
   weight_decay: 0.0
