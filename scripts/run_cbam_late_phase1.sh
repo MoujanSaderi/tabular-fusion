@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name cbam-late-phase1-v1
+#SBATCH --job-name cbam-late-phase1-v2
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
 #SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
