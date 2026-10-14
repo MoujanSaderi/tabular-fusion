@@ -1,0 +1,91 @@
+# Phase 1 for crossattn_late_feat (recommended): cross-attention whose CLS
+# features feed the image head (crossattnfeat.CrossAttnFeatFusion). Pretrains
+# the attention branch and cls_proj that configs/crossattnlate_feat.yaml loads
+# via xattn.side_ckpt; the xattn settings marked below must match there.
+# Same splits and tabular data as late fusion. residual_query is false so the
+# CLS carries clinically selected IMAGE content rather than a copy of the
+# clinical signal; expect this run's own AUC to be below a residual_query: true
+# cross-attention run. That's fine: it's pretraining.
+# Run with: python train.py --config configs/crossattn_feat_pretrain.yaml
+
+paths:
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
+  test_csv: null
+  data_dirs:
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
+  dce_dirs: []
+  extra_valid_csv: null
+
+model:
+  model: crossattn_feat
+
+xattn:
+  dim: 128                 # must match crossattnlate_feat.yaml
+  heads: 4                 # must match crossattnlate_feat.yaml
+  layers: 1                # must match crossattnlate_feat.yaml
+  dropout: 0.1
+  kv_pool: 2               # must match crossattnlate_feat.yaml
+  residual_query: false    # must match crossattnlate_feat.yaml
+  tap: layer4              # must match crossattnlate_feat.yaml
+  feature_mask_prob: 0.0
+  cls_init_std: 1.0e-3     # small random init of the CLS input weights (must be > 0)
+  train_head: false        # keep the baseline image head frozen
+  head_lr_scale: 0.1       # only used if train_head: true
+  lr_monitor: val_loss     # as crossattnfusion
+
+training:
+  gpu: True
+  epochs: 100
+  batch_size: 16
+  num_workers: 4
+  seed: 42
+  imbalance_strategy: weighted_loss
+  class_weights: null # computed automatically from the training set
+  stack_adc_b1500: True
+  mode: cspca # pirads | gleason | tstage | cspca
+
+data:
+  series: ["axt2", "adc", "b1500"]
+  augment: none
+  noise_sigma_range: [0.0, 0.0]
+  downsample_factors: [1]
+  pirads_cutoff: 3
+  mask_prostate: False
+  normalize: true
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv'
+  tabular_dims: 28
+  add_missing_indicator: True
+
+hyperparameters:
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  max_patience: 20   # early stopping: epochs without a new best val AUC
+  lr_patience: 5     # LR scheduler: epochs without val_loss improvement before LR *= factor
+  factor: 0.3
+  dropout: 0.2
+
+model_weights:
+  save_weights: True
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-feat-pretrain-rqfalse-v1
+  load_weights: True
+  # Baseline (no clinical fusion) branched ResNet3D checkpoint the backbone
+  # and image head are initialized from and then frozen (see on_train_start).
+  model_ckpt: /gpfs/data/prostatelab/Lakshita/experiments/cspca/epoch=02_AUC_best_val_pirads_auc=0.84_axt2_adc_b1500_baseline_cspca_pirads_cutoff_3.ckpt
+  disable_gradient: False
+  # Not used by crossattn_feat (it tokenizes the raw clinical features).
+  clinical_ckpt: null
+
+logging:
+  log_run: True
+  project_name: lakshita_multimodal
+  run_name: cross-attn-feat-pretrain-rqfalse-v1
+  plot_roc: False
+  plot_confusion_matrix: False
+  plot_pirads_breakdown: False
+
+debugging:
+  debug: False
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-feat-pretrain-rqfalse-v1'
+  max_test_volumes: -1
+  compute_gradcam: False

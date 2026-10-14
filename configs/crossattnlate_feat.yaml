@@ -1,0 +1,98 @@
+# Config for cross-attention + late fusion with the attention output as a HEAD
+# FEATURE (crossattnlatefeat.CrossAttnLateFeatFusion).
+# Run with: python train.py --config configs/crossattnlate_feat.yaml
+#
+# Starts from the trained late-fusion checkpoint (model_ckpt); cls_in starts at
+# small random values, so step 0 is very close to the late-fusion model. With
+# side_ckpt set, the attention branch starts from a phase-1 run: either
+# configs/crossattn_feat_pretrain.yaml (recommended) or
+# configs/crossattn_pretrain.yaml; its xattn settings must match the ones below. Leave side_ckpt null to train the branch from scratch.
+#
+# NOTE: confirm/update model_ckpt, side_ckpt, tabular_csv, and the *_dirs
+# paths against your own cluster environment before running.
+
+paths:
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
+  test_csv: null
+  data_dirs:
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
+  dce_dirs: []
+  extra_valid_csv: null
+
+model:
+  model: crossattn_late_feat
+
+xattn:
+  tap: layer4                    # must match side_ckpt's run
+  dim: 128                       # must match side_ckpt's run
+  heads: 4                       # must match side_ckpt's run
+  layers: 1                      # must match side_ckpt's run
+  dropout: 0.1
+  kv_pool: 2                     # must match side_ckpt's run
+  residual_query: false          # must match side_ckpt's run
+  feature_mask_prob: 0.0
+  # TODO: best checkpoint of the configs/crossattn_feat_pretrain.yaml run, e.g.
+  # /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-feat-pretrain-rqfalse-v1/cross-attn-feat-pretrain-rqfalse-v1/crossattn_feat_epoch=XX_best_val_pirads_auc=0.XXX.ckpt
+  side_ckpt: TODO_PATH_TO_BEST_CROSSATTN_PRETRAIN_CHECKPOINT
+  cls_init_std: 1.0e-3           # small random init of the CLS input weights (must be > 0)
+  train_head: true               # also fine-tune img_proj + fc at a lower LR
+  head_lr_scale: 0.1
+  side_lr: 1.0e-4                # side branch + cls_in; lower than crossattnlate's 1e-3
+                                 # since the branch starts pretrained
+  lr_monitor: val_auc
+
+training:
+  gpu: True
+  epochs: 200
+  batch_size: 16
+  limit_samples: null            # e.g. 32 for an overfit test; null = full training set
+  num_workers: 4
+  seed: 42
+  imbalance_strategy: weighted_loss
+  class_weights: null # computed automatically from the training set
+  stack_adc_b1500: True
+  mode: cspca # pirads | gleason | tstage | cspca
+
+data:
+  series: ["axt2", "adc", "b1500"]
+  augment: none
+  noise_sigma_range: [0.0, 0.0]
+  downsample_factors: [1]
+  pirads_cutoff: 3
+  mask_prostate: False
+  normalize: true
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv'
+  tabular_dims: 28
+  add_missing_indicator: True
+hyperparameters:
+  learning_rate: 1.0e-4
+  weight_decay: 0.0
+  max_patience: 40   # early stopping: epochs without a new best val AUC
+  lr_patience: 15     # LR scheduler: epochs without val AUC improvement before LR *= factor
+  factor: 0.5
+  dropout: 0.2       # dropout inside the frozen late-fusion fc, as it was trained
+
+model_weights:
+  save_weights: True
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-late-feat-layer4-pjsplits-v1
+  load_weights: True
+  model_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_pjsplits_v1/latefusion_pjsplits_v1/latefusion_flat_epoch=07_best_val_pirads_auc=0.877.ckpt'
+  disable_gradient: False
+  # Not used for this model: the clinical encoder's weights come from model_ckpt.
+  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_epoch=14_best_val_pirads_auc=0.851.ckpt'
+
+logging:
+  log_run: True
+  project_name: lakshita_multimodal
+  run_name: cross-attn-late-feat-layer4-pjsplits-v1
+  plot_roc: False
+  plot_confusion_matrix: False
+  plot_pirads_breakdown: True
+  log_every_n_steps: 50          # set to 1 for short overfit tests
+
+debugging:
+  debug: False
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-late-feat-layer4-pjsplits-v1'
+  max_test_volumes: -1
+  compute_gradcam: False

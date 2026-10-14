@@ -4,6 +4,9 @@ architectures, plus the tabular-only clinical MLP that pretrains their
 clinical encoder:
 
     cbam            -> aug11cbam.TriSeriesModel
+    cbam_late       -> cbamlate.CBAMLateFusion
+                        (CBAM plus a direct late path for the clinical
+                        embedding; initialized from a trained CBAM checkpoint)
     earlyscalar     -> aug11earlyscalar.TriSeriesModelFrozen
     latefusion_flat -> aug11latefusionflat.LateFusionFlatFrozen
     latefusion_flat_llrd -> aug11latefusionflat.LateFusionFlatLLRD
@@ -11,8 +14,14 @@ clinical encoder:
     daft            -> daftfusion.DAFTFusionModel
                         (DAFT block in the last layer4 bottleneck,
                         optionally plus late fusion; see daft.* config)
+    crossattn_feat  -> crossattnfeat.CrossAttnFeatFusion
+                        (cross-attention whose CLS features feed the image
+                        head; phase 1 for crossattn_late_feat)
+    crossattn_late_feat -> crossattnlatefeat.CrossAttnLateFeatFusion
+                        (late fusion whose head also reads the cross-attention
+                        CLS features; initialized from a late-fusion checkpoint,
+                        optionally plus a pretrained crossattn side branch)
     clinical_mlp    -> mlpclinical.ClinicalMLPModel
-    cbam_late       -> cbamlate.CBAMLateFusion
 
 All four subclass src.models.ResNet3D.base_3Dresnet.Base3DResNet. The fusion
 models expect a frozen imaging backbone (loaded from model_weights.model_ckpt)
@@ -46,6 +55,7 @@ from src.models.ResNet3D.lakshita_earlyfusion_construct_resnet3d import (
 from src.utils.data_enums import SeriesType
 
 from aug11cbam import TriSeriesModel as CBAMModel
+from cbamlate import CBAMLateFusion
 from aug11earlyscalar import TriSeriesModelFrozen as EarlyScalarModel
 from aug11latefusionflat import LateFusionFlatFrozen as LateFusionFlatModel
 from aug11latefusionflat import LateFusionFlatLLRD
@@ -53,11 +63,13 @@ from mlpclinical import ClinicalMLPModel
 from daftfusion import DAFTFusionModel
 from crossattnfusion import CrossAttnFusionModel
 from crossattnlate import CrossAttnLateFusion
-from cbamlate import CBAMLateFusion
+from crossattnlatefeat import CrossAttnLateFeatFusion
+from crossattnfeat import CrossAttnFeatFusion
 
 
 MODEL_REGISTRY = {
     "cbam": CBAMModel,
+    "cbam_late": CBAMLateFusion,
     "earlyscalar": EarlyScalarModel,
     "latefusion_flat": LateFusionFlatModel,
     "latefusion_flat_llrd": LateFusionFlatLLRD,
@@ -65,7 +77,8 @@ MODEL_REGISTRY = {
     "daft": DAFTFusionModel,
     "crossattn": CrossAttnFusionModel,
     "crossattn_late": CrossAttnLateFusion,
-    "cbam_late": CBAMLateFusion
+    "crossattn_late_feat": CrossAttnLateFeatFusion,
+    "crossattn_feat": CrossAttnFeatFusion,
 }
 
 # Models that never look at the imaging volumes, so an imaging checkpoint
