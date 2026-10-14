@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name cross-attn-v1
+#SBATCH --job-name cross-attn-layer4-v1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
-#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/script_logs/job-%j-%x.log
+#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks-per-node=1
@@ -10,7 +10,7 @@
 #SBATCH --time=2-23:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --partition CAI2R
-#SBATCH --chdir=/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn
+#SBATCH --chdir=/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion
 
 
 # activate your environment

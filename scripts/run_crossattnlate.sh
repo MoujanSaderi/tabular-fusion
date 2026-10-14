@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name cross-attn-late-layer4-pjsplits-v1
+#SBATCH --job-name cross-attn-late-layer4-nocenter-pjsplits-v1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
 #SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
@@ -29,6 +29,6 @@ python -c "import sys; print(sys.path)"
 python -c "import torch; print('torch ok:', torch.__version__)"
 # - - - //
 
-python train.py --config configs/crossattnlate.yaml
+python train.py --config configs/crossattnlate-nocenter.yaml
 
 

@@ -6,8 +6,8 @@
 # paths against your own cluster environment before running.
 
 paths:
-  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_April4_testpatient_removed_relabeled.csv
-  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_April4_testpatient_removed_relabeled.csv
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
   test_csv: null
   data_dirs:
     - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
@@ -26,12 +26,13 @@ xattn:
   residual_query: true     # set false for the "clinical only guides where to look" ablation
   feature_mask_prob: 0.0   # try 0.1 once the basic model trains
   train_fc: false          # keep the baseline image head frozen
-  n_features: 27           # must match the number of clinical columns in tabular_csv
-  tap: 4
+  tap: layer4
+  delta_init_std: 1.0e-3
+  lr_monitor: val_auc
 
 training:
   gpu: True
-  epochs: 100
+  epochs: 200
   batch_size: 16
   num_workers: 4
   seed: 42
@@ -49,18 +50,20 @@ data:
   mask_prostate: False
   normalize: true
   tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv'
+  tabular_dims: 28
+  add_missing_indicator: True
 
 hyperparameters:
-  learning_rate: 0.0001
+  learning_rate: 1.0e-4
   weight_decay: 0.0
-  max_patience: 20   # early stopping: epochs without a new best val AUC
-  lr_patience: 5     # LR scheduler: epochs without val_loss improvement before LR *= factor
-  factor: 0.3
+  max_patience: 40   # early stopping: epochs without a new best val AUC
+  lr_patience: 15     # LR scheduler: epochs without val_loss improvement before LR *= factor
+  factor: 0.5
   dropout: 0.2
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-v1
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cross-attn-layer4-v1
   load_weights: True
   # Baseline (no clinical fusion) branched ResNet3D checkpoint the CBAM
   # backbone is initialized from and then frozen (see on_train_start).
@@ -68,19 +71,18 @@ model_weights:
   disable_gradient: False
   # Optional: path to a clinical-MLP checkpoint produced by mlpclinical.py.
   # If null, the frozen clinical encoder uses (frozen, untrained) random init.
-  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_fixed_v1/clinical_mlp_fixed_v1/clinical_mlp_epoch=10_best_val_pirads_auc=0.851.ckpt'
+  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_epoch=14_best_val_pirads_auc=0.851.ckpt'
 
 logging:
   log_run: True
   project_name: lakshita_multimodal
-  run_name: cross-attn-v1
-  load_weights: True
+  run_name: cross-attn-layer4-v1
   plot_roc: False
   plot_confusion_matrix: False
-  plot_pirads_breakdown: False
+  plot_pirads_breakdown: True
 
 debugging:
   debug: False
-  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-v1'
+  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cross-attn-layer4-v1'
   max_test_volumes: -1
   compute_gradcam: False
