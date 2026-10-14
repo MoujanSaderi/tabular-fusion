@@ -37,6 +37,12 @@ Config (all optional), under a top-level `xattn:` section:
     feature_mask_prob    per-feature prob. of replacing a clinical token with a
                          learned [MASK] token during training           (default 0.0)
     train_fc             also fine-tune the baseline fc                  (default false)
+    delta_init_std       init std of delta_head's output layer; 0 = exact zero-init.
+                         A small non-zero value (e.g. 1e-3) shortens the "dead"
+                         phase where upstream layers get almost no gradient;
+                         the bias stays zero, so step 0 is still ~= baseline   (default 0.0)
+    lr_monitor           metric ReduceLROnPlateau watches: "val_loss" (mode min)
+                         or "val_auc" (mode max)                         (default "val_loss")
     n_features           defaults to data.tabular_dims, which train.py fills
                          from the tabular CSV
 
@@ -153,6 +159,14 @@ class CrossAttnFusionModel(Base3DResNet):
         dropout = cfg.get("dropout", 0.1)
         self.feature_mask_prob = cfg.get("feature_mask_prob", 0.0)
         self.train_fc = cfg.get("train_fc", False)
+        # float(): PyYAML reads exponent notation without a decimal point
+        # (e.g. 1e-3) as a string, not a number
+        self.delta_init_std = float(cfg.get("delta_init_std", 0.0))
+        if self.delta_init_std < 0:
+            raise ValueError(f"xattn.delta_init_std must be >= 0, got {self.delta_init_std}")
+        self.lr_monitor = cfg.get("lr_monitor", "val_loss")
+        if self.lr_monitor not in ("val_auc", "val_loss"):
+            raise ValueError(f"xattn.lr_monitor must be val_auc or val_loss, got {self.lr_monitor}")
 
         self.tap = cfg.get("tap", "layer4")
         self.series = series_keys(config)
@@ -205,7 +219,14 @@ class CrossAttnFusionModel(Base3DResNet):
             nn.LayerNorm(dim), nn.Linear(dim, dim), nn.GELU(),
             nn.Dropout(dropout), nn.Linear(dim, 2),
         )
-        nn.init.zeros_(self.delta_head[-1].weight)
+        # Exact zero-init makes step 0 reproduce the baseline, but also blocks
+        # gradient to everything upstream until this layer's weights grow.
+        # A small std keeps the output ~0 while letting upstream layers learn
+        # from the first step. The bias stays zero either way.
+        if self.delta_init_std > 0:
+            nn.init.normal_(self.delta_head[-1].weight, std=self.delta_init_std)
+        else:
+            nn.init.zeros_(self.delta_head[-1].weight)
         nn.init.zeros_(self.delta_head[-1].bias)
 
         self.last_attn = None  # for visualization: list of (B, heads, Q, N) per block
@@ -234,11 +255,15 @@ class CrossAttnFusionModel(Base3DResNet):
             params, self.hyperparams["learning_rate"],
             weight_decay=self.hyperparams["weight_decay"],
         )
+        # val_auc: only cut the LR when ranking stops improving. val_loss also
+        # improves from recalibration alone, which can trigger LR cuts before
+        # the patient-specific part of the correction has had a chance to grow.
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=int(self.hyperparams["lr_patience"]),
+            optimizer, mode="max" if self.lr_monitor == "val_auc" else "min",
+            patience=int(self.hyperparams["lr_patience"]),
             factor=self.hyperparams["factor"], threshold=1e-4,
         )
-        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": self.lr_monitor}
 
     # ------------------------------------------------------------------ #
     def forward(self, data_dict, tabular_features):
