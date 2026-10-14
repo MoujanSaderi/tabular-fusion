@@ -7,7 +7,6 @@ clinical encoder:
     cbam_late       -> cbamlate.CBAMLateFusion
                         (CBAM plus a direct late path for the clinical
                         embedding; initialized from a trained CBAM checkpoint)
-    earlyscalar     -> aug11earlyscalar.TriSeriesModelFrozen
     latefusion_flat -> aug11latefusionflat.LateFusionFlatFrozen
     latefusion_flat_llrd -> aug11latefusionflat.LateFusionFlatLLRD
                         (both encoders unfrozen, layer-wise LR decay)
@@ -56,7 +55,6 @@ from src.utils.data_enums import SeriesType
 
 from aug11cbam import TriSeriesModel as CBAMModel
 from cbamlate import CBAMLateFusion
-from aug11earlyscalar import TriSeriesModelFrozen as EarlyScalarModel
 from aug11latefusionflat import LateFusionFlatFrozen as LateFusionFlatModel
 from aug11latefusionflat import LateFusionFlatLLRD
 from mlpclinical import ClinicalMLPModel
@@ -70,7 +68,6 @@ from crossattnfeat import CrossAttnFeatFusion
 MODEL_REGISTRY = {
     "cbam": CBAMModel,
     "cbam_late": CBAMLateFusion,
-    "earlyscalar": EarlyScalarModel,
     "latefusion_flat": LateFusionFlatModel,
     "latefusion_flat_llrd": LateFusionFlatLLRD,
     "clinical_mlp": ClinicalMLPModel,
@@ -86,7 +83,7 @@ MODEL_REGISTRY = {
 TABULAR_ONLY_MODELS = {"clinical_mlp"}
 
 # ClinicalMLPModel's nn.Sequential layer names -> the attribute names
-# FrozenClinicalEncoder reads in aug11cbam / aug11earlyscalar /
+# FrozenClinicalEncoder reads in aug11cbam /
 # aug11latefusionflat. The final 64 -> 2 classifier (mlp.5) is dropped: the
 # encoders only reuse the 37 -> 128 -> 64 feature extractor.
 CLINICAL_ENCODER_KEY_MAP = {
@@ -227,7 +224,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=(
             "Train one of the final fusion architectures "
-            "(cbam / earlyscalar / latefusion_flat / daft) or the clinical_mlp encoder"
+            "(cbam / latefusion_flat / daft) or the clinical_mlp encoder"
         )
     )
     source = parser.add_mutually_exclusive_group(required=True)
