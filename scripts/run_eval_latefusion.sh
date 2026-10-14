@@ -1,0 +1,38 @@
+#!/bin/bash
+#SBATCH --job-name eval_latefusion_pjsplits_clinical_missing_v1
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=moujan.saderi@nyulangone.org
+#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --mem=50GB
+#SBATCH --time=0-01:00:00
+#SBATCH --gres=gpu:1
+#SBATCH --partition CAI2R,radiology,gpu4_medium,gpu8_medium
+#SBATCH --chdir=/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion
+
+
+# activate your environment
+module purge
+module load cuda/12.6 gcc/11.2.0
+# module load anaconda3/gpu/2023.09
+# export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+source /gpfs/share/apps/anaconda3/gpu/2025.06/etc/profile.d/conda.sh
+conda activate /gpfs/data/johnsonplab/moujan/envs/tabular-fusion
+
+# - - - troubleshooting - - - 
+echo "Which python: $(which python)"
+echo "Python path: $(python -c 'import sys; print(sys.executable)')"
+echo "Conda env: $CONDA_DEFAULT_ENV"
+python -c "import sys; print(sys.path)"
+python -c "import torch; print('torch ok:', torch.__version__)"
+# - - - //
+
+python eval.py \
+        --num-workers 2 \
+        --config configs/latefusion_flat.yaml \
+        --ckpt 'output/latefusion_pjsplits_v1/latefusion_pjsplits_v1/latefusion_flat_epoch=07_best_val_pirads_auc=0.877.ckpt' \
+        --out output/eval_pjsplit_val/preds_val_latefusion.csv
+
+
