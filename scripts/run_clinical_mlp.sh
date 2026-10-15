@@ -1,15 +1,15 @@
 #!/bin/bash
-#SBATCH --job-name clinical_mlp_pjsplits_clinical_missing_v1
+#SBATCH --job-name clinical_only_v1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
-#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
+#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs_clean/job-%j-%x.log
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=50GB
 #SBATCH --time=0-01:00:00
 #SBATCH --gres=gpu:1
-#SBATCH --partition radiology,gpu4_medium,gpu8_medium
+#SBATCH --partition CAI2R,radiology,gpu4_medium,gpu8_medium
 #SBATCH --chdir=/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion
 
 

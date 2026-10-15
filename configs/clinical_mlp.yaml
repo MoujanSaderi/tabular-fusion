@@ -15,8 +15,8 @@
 # NOTE: update save_weights_dir / preds_dir to a directory you can write to.
 
 paths:
-  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
-  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
+  train_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-14-train-split.csv'
+  valid_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-14-val-split.csv'
   test_csv: null
   data_dirs:
     - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
@@ -45,21 +45,21 @@ data:
   pirads_cutoff: 3
   mask_prostate: False
   normalize: true
-  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv'
-  tabular_dims: 28
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-15-train-val-tabular-v1.csv'
+  tabular_dims: 24
   add_missing_indicator: True
 
 hyperparameters:
   learning_rate: 0.0001
   weight_decay: 0.0
   max_patience: 20   # early stopping: epochs without a new best val AUC
-  lr_patience: 5     # LR scheduler: epochs without val_loss improvement before LR *= factor
-  factor: 0.3
+  lr_patience: 8     # LR scheduler: epochs without val_loss improvement before LR *= factor
+  factor: 0.5
   dropout: 0.2
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_clinical_missing_v1
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output-clean/clinical_mlp_v1
   # No imaging backbone, so there is nothing to load; train.py ignores
   # model_ckpt for clinical_mlp even if these are set.
   load_weights: False
@@ -69,14 +69,14 @@ model_weights:
 
 logging:
   log_run: True
-  project_name: lakshita_multimodal
-  run_name: clinical_mlp_pjsplits_clinical_missing_v1
+  project_name: tabular_fusion
+  run_name: clinical_mlp_v1
   plot_roc: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963355-clinical_mlp_v1-2026-09-30.log 
   plot_confusion_matrix: False # True gives error, see: code/tabular-data-fusion/tabular-fusion/script_logs/job-27963721-clinical_mlp_v1-2026-09-30.log
-  plot_pirads_breakdown: True
+  plot_pirads_breakdown: False
 
 debugging:
   debug: False
-  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_clinical_missing_v1
+  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output-clean/clinical_mlp_v1
   max_test_volumes: -1
   compute_gradcam: False
