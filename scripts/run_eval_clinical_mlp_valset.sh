@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name eval_clinical_mlp_pjsplits_clinical_missing_v1
+#SBATCH --job-name eval_clinical_mlp_valset_v1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
-#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
+#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs_clean/job-%j-%x.log
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks-per-node=1
@@ -32,7 +32,7 @@ python -c "import torch; print('torch ok:', torch.__version__)"
 python eval.py \
         --num-workers 2 \
         --config configs/clinical_mlp.yaml \
-        --ckpt 'output/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_epoch=14_best_val_pirads_auc=0.851.ckpt' \
-        --out ouput/eval_pjsplit_val/preds_val_clinical_mlp.csv
+        --ckpt '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output-clean/clinical_mlp_v1/clinical_mlp_v1/clinical_mlp_epoch=26_best_val_pirads_auc=0.848.ckpt' \
+        --out ouput_clean/eval/preds_clinical_mlp_val.csv
 
 
