@@ -4,7 +4,7 @@ predictions to a CSV.
 
 Works with any model in train.py's MODEL_REGISTRY (cbam, earlyscalar,
 latefusion_flat, latefusion_flat_llrd, daft, crossattn, crossattn_late,
-clinical_mlp). Use the same YAML config the checkpoint was trained with: it
+clinical_mlp, pirads_rule). Use the same YAML config the checkpoint was trained with: it
 defines the architecture, series, tabular CSV and preprocessing.
 
 Usage:
@@ -15,6 +15,9 @@ Usage:
 
     # evaluate on a different split than paths.valid_csv:
     python eval.py --config ... --ckpt ... --val-csv /path/to/other_split.csv --out preds.csv
+
+    # rule-based models (pirads_rule) have no weights, so no --ckpt:
+    python eval.py --config configs/pirads_rule.yaml --out preds_pirads_rule.csv
 
 The output CSV has one row per exam with AccessionNumber, PatientID, target,
 maxPIRADS, logits, softmax probabilities and a thresholded prediction. It also
@@ -32,6 +35,7 @@ from sklearn.metrics import roc_auc_score
 
 from train import (
     MODEL_REGISTRY,
+    RULE_BASED_MODELS,
     SERIES_NAME_TO_ENUM,
     build_dataloader,
     build_dataset,
@@ -54,6 +58,17 @@ def load_model(config, ckpt_path, device):
     # pretrained-backbone loading (model_weights.model_ckpt): every weight is
     # overwritten by the trained checkpoint below anyway.
     model = MODEL_REGISTRY[model_name](config)
+
+    if model_name in RULE_BASED_MODELS:
+        # Fixed rule with no weights: nothing to load.
+        if ckpt_path:
+            print(f"[{model_name}] has no learned weights; ignoring --ckpt {ckpt_path}")
+        model.to(device)
+        model.eval()
+        print(f"Using rule-based model {model_name}")
+        return model
+    if not ckpt_path:
+        raise ValueError(f"--ckpt is required for {model_name}.")
 
     checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     state_dict = checkpoint.get("state_dict", checkpoint)
@@ -78,7 +93,8 @@ def load_model(config, ckpt_path, device):
 def main():
     parser = argparse.ArgumentParser(description="Evaluate a trained fusion model on a CSV split.")
     parser.add_argument("--config", required=True, help="YAML config used to train the checkpoint")
-    parser.add_argument("--ckpt", required=True, help="Lightning .ckpt file to evaluate")
+    parser.add_argument("--ckpt", help="Lightning .ckpt file to evaluate "
+                        "(required except for rule-based models such as pirads_rule)")
     parser.add_argument("--val-csv", help="Split CSV to evaluate on (default: paths.valid_csv)")
     parser.add_argument("--out", required=True, help="Where to write the predictions CSV")
     parser.add_argument("--batch-size", type=int, help="Override training.batch_size")
@@ -117,7 +133,12 @@ def main():
     with torch.no_grad():
         for batch in loader:
             volumes, tabular = to_device(batch, device)
-            logits = model(volumes, tabular).float().cpu()
+            if getattr(model, "uses_max_pirads", False):
+                # Rule-based models decide from maxPIRADS (from the split CSV).
+                logits = model(volumes, tabular, batch["maxPIRADS"].to(device))
+            else:
+                logits = model(volumes, tabular)
+            logits = logits.float().cpu()
             probs = torch.softmax(logits, dim=1)
 
             for i in range(logits.shape[0]):

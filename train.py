@@ -21,6 +21,10 @@ clinical encoder:
                         CLS features; initialized from a late-fusion checkpoint,
                         optionally plus a pretrained crossattn side branch)
     clinical_mlp    -> mlpclinical.ClinicalMLPModel
+    pirads_rule     -> pirads_rule.PIRADSRuleClassifier
+                        (no learned parameters: predicts 1 when
+                        maxPIRADS >= model.pirads_threshold, default 3;
+                        train.py skips fitting and only runs trainer.test())
 
 All four subclass src.models.ResNet3D.base_3Dresnet.Base3DResNet. The fusion
 models expect a frozen imaging backbone (loaded from model_weights.model_ckpt)
@@ -34,6 +38,7 @@ save_weights_dir; point model_weights.clinical_ckpt at that file.
 Usage:
     python train.py --config configs/clinical_mlp.yaml   # step 1 (optional)
     python train.py --config configs/cbam.yaml           # step 2
+    python train.py --config configs/pirads_rule.yaml    # PI-RADS rule baseline (test only)
 
     # Convert an existing clinical_mlp Lightning checkpoint without retraining:
     python train.py --export-clinical-encoder path/to/clinical_mlp_*.ckpt
@@ -63,6 +68,7 @@ from crossattnfusion import CrossAttnFusionModel
 from crossattnlate import CrossAttnLateFusion
 from crossattnlatefeat import CrossAttnLateFeatFusion
 from crossattnfeat import CrossAttnFeatFusion
+from pirads_rule import PIRADSRuleClassifier
 
 
 MODEL_REGISTRY = {
@@ -76,11 +82,19 @@ MODEL_REGISTRY = {
     "crossattn_late": CrossAttnLateFusion,
     "crossattn_late_feat": CrossAttnLateFeatFusion,
     "crossattn_feat": CrossAttnFeatFusion,
+    "pirads_rule": PIRADSRuleClassifier,
 }
 
 # Models that never look at the imaging volumes, so an imaging checkpoint
 # (model_weights.model_ckpt) has nothing to initialize.
 TABULAR_ONLY_MODELS = {"clinical_mlp"}
+
+# Fixed decision rules with nothing to train: train.py skips trainer.fit() and
+# goes straight to trainer.test(), and eval.py runs them without a checkpoint.
+RULE_BASED_MODELS = {"pirads_rule"}
+
+# Models that never read the MRI volumes (the loader skips the H5 files).
+NO_IMAGING_MODELS = TABULAR_ONLY_MODELS | RULE_BASED_MODELS
 
 # ClinicalMLPModel's nn.Sequential layer names -> the attribute names
 # FrozenClinicalEncoder reads in aug11cbam /
@@ -139,8 +153,9 @@ def build_dataset(csv_path, config, mode, series):
         dwi_suffices=data_cfg.get("dwi_suffices"),
         dce_dirs=config["paths"].get("dce_dirs"),
         tabular_csv=data_cfg.get("tabular_csv"),
-        # Tabular-only models never look at the MRI volumes, so don't read them.
-        load_volumes=config["model"]["model"].lower() not in TABULAR_ONLY_MODELS,
+        # Tabular-only / rule-based models never look at the MRI volumes, so
+        # don't read them.
+        load_volumes=config["model"]["model"].lower() not in NO_IMAGING_MODELS,
         train_csv_path=config["paths"]["train_csv"],
         add_missing_indicator=config["data"]["add_missing_indicator"],
     )
@@ -167,7 +182,7 @@ def build_model(config):
     model = MODEL_REGISTRY[model_name](config)
 
     weights_cfg = config.get("model_weights", {})
-    if model_name in TABULAR_ONLY_MODELS:
+    if model_name in NO_IMAGING_MODELS:
         if weights_cfg.get("load_weights") and weights_cfg.get("model_ckpt"):
             print(
                 f"[{model_name}] ignoring model_weights.model_ckpt: this model "
@@ -269,7 +284,7 @@ def main():
     if config["data"].get("tabular_csv"):
         n_features = train_dataset.num_tabular_features
         configured = config["data"].get("tabular_dims")
-        if configured is not None and configured != n_features - int(config["data"]["add_missing_indicator"]):
+        if configured is not None and configured != n_features:
             raise ValueError(
                 f"{config['data']['tabular_csv']} has {n_features} feature columns "
                 f"(excluding AccessionNumber), but data.tabular_dims is {configured}. "
@@ -369,7 +384,10 @@ def main():
         callbacks.append(pl.callbacks.LearningRateMonitor(logging_interval="step"))
 
     trainer = pl.Trainer(**trainer_kwargs)
-    trainer.fit(model, train_loader, val_dataloaders=[val_loader])
+    if model_name in RULE_BASED_MODELS:
+        print(f"[{model_name}] fixed rule, nothing to train: skipping trainer.fit()")
+    else:
+        trainer.fit(model, train_loader, val_dataloaders=[val_loader])
 
     if model_name in TABULAR_ONLY_MODELS:
         best_ckpt = checkpoint_callback.best_model_path
@@ -388,6 +406,10 @@ def main():
     if test_csv:
         test_dataset = build_dataset(test_csv, config, "test", series)
         test_loader = build_dataloader(test_dataset, config, shuffle=False)
+        # The PI-RADS breakdown plot in on_test_epoch_end reads this list, so it
+        # has to describe the exams actually being tested (model.log_configs is
+        # the same dict object as config["logging"]).
+        config["logging"]["val_pirads"] = test_dataset.pirads
     else:
         test_loader = val_loader
     trainer.test(model, dataloaders=[test_loader])

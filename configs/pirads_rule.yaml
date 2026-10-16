@@ -1,0 +1,80 @@
+# Config for pirads_rule.PIRADSRuleClassifier: a fixed rule that predicts 1 when
+# maxPIRADS >= model.pirads_threshold and 0 otherwise. Nothing is learned.
+#
+#   python train.py --config configs/pirads_rule.yaml
+#       skips trainer.fit() and runs trainer.test() on paths.test_csv (or
+#       paths.valid_csv if test_csv is null), writing the usual predictions
+#       CSV to debugging.preds_dir and logging test_auc etc.
+#   python eval.py --config configs/pirads_rule.yaml --out preds_pirads_rule.csv
+#       same predictions in eval.py's per-exam CSV format (no --ckpt needed).
+#
+# Splits, mode and pirads_cutoff match the fusion / clinical MLP configs, so the
+# rule is scored on exactly the same exams and labels. maxPIRADS comes from the
+# split CSV, so no H5 volumes or tabular CSV are read; data_dirs and series are
+# only kept because the loader requires them.
+#
+# NOTE: update save_weights_dir / preds_dir to a directory you can write to.
+
+paths:
+  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
+  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
+  test_csv: null
+  data_dirs:
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
+  dce_dirs: []
+  extra_valid_csv: null
+
+model:
+  model: pirads_rule
+  pirads_threshold: 3 # predict 1 when maxPIRADS >= this
+
+training:
+  gpu: False # nothing to compute on a GPU
+  epochs: 0 # unused: no fitting
+  batch_size: 64
+  num_workers: 4
+  seed: 42
+  imbalance_strategy: none
+  class_weights: null
+  mode: cspca # pirads | gleason | tstage | cspca
+
+data:
+  series: ["axt2", "adc", "b1500"]
+  augment: none
+  noise_sigma_range: [0.0, 0.0]
+  downsample_factors: [1]
+  pirads_cutoff: 3 # only affects labels in mode: pirads (label = maxPIRADS > cutoff)
+  mask_prostate: False
+  normalize: true
+  tabular_csv: null
+  add_missing_indicator: False
+
+hyperparameters:
+  learning_rate: 0.0
+  weight_decay: 0.0
+  max_patience: 1
+  lr_patience: 1
+  factor: 0.3
+  dropout: 0.0
+
+model_weights:
+  save_weights: False
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/pirads_rule_ge3
+  load_weights: False
+  model_ckpt: null
+  disable_gradient: False
+  clinical_ckpt: null
+
+logging:
+  log_run: True
+  project_name: lakshita_multimodal
+  run_name: pirads_rule_ge3
+  plot_roc: False
+  plot_confusion_matrix: False
+  plot_pirads_breakdown: True
+
+debugging:
+  debug: False
+  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/pirads_rule_ge3
+  max_test_volumes: -1
+  compute_gradcam: False
