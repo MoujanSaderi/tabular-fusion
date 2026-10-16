@@ -16,6 +16,12 @@ Usage:
     # evaluate on a different split than paths.valid_csv:
     python eval.py --config ... --ckpt ... --val-csv /path/to/other_split.csv --out preds.csv
 
+    # held-out test set whose clinical features live in their own CSV:
+    python eval.py --config ... --ckpt ... --val-csv /path/to/test_split.csv \
+        --tabular-csv /path/to/test_tabular.csv --out preds_test.csv
+    # Features are read from --tabular-csv, but standardized with the training
+    # statistics from the config's data.tabular_csv, exactly as in training.
+
     # rule-based models (pirads_rule) have no weights, so no --ckpt:
     python eval.py --config configs/pirads_rule.yaml --out preds_pirads_rule.csv
 
@@ -96,6 +102,12 @@ def main():
     parser.add_argument("--ckpt", help="Lightning .ckpt file to evaluate "
                         "(required except for rule-based models such as pirads_rule)")
     parser.add_argument("--val-csv", help="Split CSV to evaluate on (default: paths.valid_csv)")
+    parser.add_argument(
+        "--tabular-csv",
+        help="Clinical features CSV to read features from instead of data.tabular_csv "
+             "(e.g. a separate test CSV). Standardization statistics still come from "
+             "the train_csv rows of data.tabular_csv. Must have the same feature columns.",
+    )
     parser.add_argument("--out", required=True, help="Where to write the predictions CSV")
     parser.add_argument("--batch-size", type=int, help="Override training.batch_size")
     parser.add_argument("--num-workers", type=int, help="Override training.num_workers")
@@ -115,6 +127,17 @@ def main():
         config["training"]["num_workers"] = args.num_workers
 
     val_csv = args.val_csv or config["paths"]["valid_csv"]
+    if args.tabular_csv:
+        train_tabular_csv = config["data"].get("tabular_csv")
+        if not train_tabular_csv:
+            raise ValueError(
+                "--tabular-csv needs data.tabular_csv in the config: that is where the "
+                "training standardization statistics come from."
+            )
+        print(f"Reading tabular features from {args.tabular_csv}; standardization "
+              f"statistics from the train rows of {train_tabular_csv}")
+        config["data"]["stats_tabular_csv"] = train_tabular_csv
+        config["data"]["tabular_csv"] = args.tabular_csv
     series = [SERIES_NAME_TO_ENUM[s] for s in config["data"]["series"]]
 
     # mode="val" -> no augmentation. build_dataset still reads paths.train_csv,

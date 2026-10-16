@@ -153,6 +153,7 @@ def build_dataset(csv_path, config, mode, series):
         dwi_suffices=data_cfg.get("dwi_suffices"),
         dce_dirs=config["paths"].get("dce_dirs"),
         tabular_csv=data_cfg.get("tabular_csv"),
+        stats_tabular_csv=data_cfg.get("stats_tabular_csv"),
         # Tabular-only / rule-based models never look at the MRI volumes, so
         # don't read them.
         load_volumes=config["model"]["model"].lower() not in NO_IMAGING_MODELS,

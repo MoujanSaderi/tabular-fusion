@@ -60,6 +60,7 @@ class ExamH5Dataset(Dataset):
         load_volumes=True,
         train_csv_path=None,
         add_missing_indicator=False,
+        stats_tabular_csv=None,
     ):
         """
         metadata_csv: path to csv containing labels and metadata for each
@@ -79,6 +80,11 @@ class ExamH5Dataset(Dataset):
         normalize (bool): Apply z-score normalization to each volume.
         tabular_csv (str | Path, optional): CSV of clinical features, one row
             per AccessionNumber (plus a 'split' column, which is dropped).
+        stats_tabular_csv (str | Path, optional): CSV the standardization
+            statistics are computed from (its train_csv rows), when that is a
+            different file than tabular_csv, e.g. tabular_csv is a held-out
+            test CSV with no training rows. Defaults to tabular_csv itself.
+            Must have the same feature columns as tabular_csv.
         load_volumes (bool): If False, skip locating and reading the H5/MRI
             volumes entirely and return empty volume dicts. For tabular-only
             models (e.g. mlpclinical.ClinicalMLPModel) that never use them.
@@ -115,15 +121,37 @@ class ExamH5Dataset(Dataset):
             
             feature_cols = tab_df.columns.drop(["AccessionNumber"])
 
+            # Statistics come from stats_tabular_csv when it is a separate file
+            # (e.g. tabular_csv is a held-out test CSV); otherwise from
+            # tabular_csv itself. Only train_csv rows of it are ever used.
+            if stats_tabular_csv is not None and Path(stats_tabular_csv) != Path(tabular_csv):
+                stats_df = pd.read_csv(stats_tabular_csv).replace([np.inf, -np.inf], np.nan)
+                stats_cols = stats_df.columns.drop(["AccessionNumber"])
+                if set(stats_cols) != set(feature_cols):
+                    raise ValueError(
+                        f"{tabular_csv} and {stats_tabular_csv} must have the same "
+                        f"feature columns. Only in {tabular_csv}: "
+                        f"{sorted(set(feature_cols) - set(stats_cols))}; only in "
+                        f"{stats_tabular_csv}: {sorted(set(stats_cols) - set(feature_cols))}"
+                    )
+                # Same column order as training, so features line up with the
+                # model's input weights.
+                feature_cols = stats_cols
+                tab_df = tab_df[["AccessionNumber", *feature_cols]]
+            else:
+                stats_df = tab_df
+
             # Standardize continuous features using training-split statistics only.
-            # Binary columns (2 or fewer distinct values) are left as 0/1.
+            # Binary columns (2 or fewer distinct values) are left as 0/1. Which
+            # columns count as continuous is decided on stats_df, so the
+            # decision is identical however few rows tabular_csv has.
             if train_csv_path is not None:
                 train_acc = set(pd.read_csv(train_csv_path)["AccessionNumber"].astype(int))
-                train_rows = tab_df["AccessionNumber"].astype(int).isin(train_acc)
+                train_rows = stats_df["AccessionNumber"].astype(int).isin(train_acc)
                 assert train_rows.any(), "No tabular rows match train_csv accessions"
-                cont_cols = [c for c in feature_cols if tab_df[c].nunique(dropna=True) > 2]
-                mean = tab_df.loc[train_rows, cont_cols].mean()
-                std = tab_df.loc[train_rows, cont_cols].std().replace(0, 1).fillna(1)
+                cont_cols = [c for c in feature_cols if stats_df[c].nunique(dropna=True) > 2]
+                mean = stats_df.loc[train_rows, cont_cols].mean()
+                std = stats_df.loc[train_rows, cont_cols].std().replace(0, 1).fillna(1)
                 tab_df[cont_cols] = (tab_df[cont_cols] - mean) / std
 
             # Rows present in the CSV but with every feature missing.
