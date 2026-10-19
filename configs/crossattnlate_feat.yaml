@@ -12,11 +12,15 @@
 # paths against your own cluster environment before running.
 
 paths:
-  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
-  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
+  train_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-14-train-split.csv'
+  valid_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-14-val-split.csv'
   test_csv: null
   data_dirs:
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_backfill_updated_series_20260727
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_2024_data_20250408
     - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_4355848
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_4304779
   dce_dirs: []
   extra_valid_csv: null
 
@@ -32,19 +36,18 @@ xattn:
   kv_pool: 2                     # must match side_ckpt's run
   residual_query: false          # must match side_ckpt's run
   feature_mask_prob: 0.0
-  # TODO: best checkpoint of the configs/crossattn_feat_pretrain.yaml run, e.g.
-  # /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-feat-pretrain-rqfalse-v1/cross-attn-feat-pretrain-rqfalse-v1/crossattn_feat_epoch=XX_best_val_pirads_auc=0.XXX.ckpt
-  side_ckpt: TODO_PATH_TO_BEST_CROSSATTN_PRETRAIN_CHECKPOINT
+  # TODO: best checkpoint of the configs/crossattn_feat_pretrain.yaml run
+  side_ckpt: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/xattn_feat_pretrain_v1/xattn_feat_pretrain_v1/crossattn_feat_epoch=51_best_val_pirads_auc=0.863.ckpt
   cls_init_std: 1.0e-3           # small random init of the CLS input weights (must be > 0)
   train_head: true               # also fine-tune img_proj + fc at a lower LR
   head_lr_scale: 0.1
   side_lr: 1.0e-4                # side branch + cls_in; lower than crossattnlate's 1e-3
                                  # since the branch starts pretrained
-  lr_monitor: val_auc
+  lr_monitor: val_loss
 
 training:
   gpu: True
-  epochs: 200
+  epochs: 100
   batch_size: 16
   limit_samples: null            # e.g. 32 for an overfit test; null = full training set
   num_workers: 4
@@ -62,30 +65,30 @@ data:
   pirads_cutoff: 3
   mask_prostate: False
   normalize: true
-  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv'
-  tabular_dims: 28
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-15-train-val-tabular-v1.csv'
+  tabular_dims: 24
   add_missing_indicator: True
 hyperparameters:
   learning_rate: 1.0e-4
   weight_decay: 0.0
-  max_patience: 40   # early stopping: epochs without a new best val AUC
-  lr_patience: 15     # LR scheduler: epochs without val AUC improvement before LR *= factor
+  max_patience: 30   # early stopping: epochs without a new best val AUC
+  lr_patience: 10     # LR scheduler: epochs without val AUC improvement before LR *= factor
   factor: 0.5
   dropout: 0.2       # dropout inside the frozen late-fusion fc, as it was trained
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-late-feat-layer4-pjsplits-v1
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/xattn_feat_late_v1
   load_weights: True
-  model_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/latefusion_pjsplits_v1/latefusion_pjsplits_v1/latefusion_flat_epoch=07_best_val_pirads_auc=0.877.ckpt'
+  model_ckpt: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/late_fusion_v1/late_fusion_1/latefusion_flat_epoch=03_best_val_pirads_auc=0.875.ckpt
   disable_gradient: False
   # Not used for this model: the clinical encoder's weights come from model_ckpt.
-  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_epoch=14_best_val_pirads_auc=0.851.ckpt'
+  clinical_ckpt: null
 
 logging:
   log_run: True
-  project_name: lakshita_multimodal
-  run_name: cross-attn-late-feat-layer4-pjsplits-v1
+  project_name: tabular_fusion
+  run_name: xattn_feat_late_v1
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: True
@@ -93,6 +96,6 @@ logging:
 
 debugging:
   debug: False
-  preds_dir: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/cross-attn/output/cross-attn-late-feat-layer4-pjsplits-v1'
+  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/xattn_feat_late_v1
   max_test_volumes: -1
   compute_gradcam: False

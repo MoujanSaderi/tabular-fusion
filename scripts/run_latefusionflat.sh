@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name latefusion_pjsplits_v1
+#SBATCH --job-name late_fusion_v1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
-#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
+#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs_clean/job-%j-%x.log
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks-per-node=1

@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name cross-attn-feat-fusion-rqtrue-v1
+#SBATCH --job-name xattn_feat_late_v1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
-#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
+#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs_clean/job-%j-%x.log
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=5
 #SBATCH --ntasks-per-node=1
@@ -29,6 +29,6 @@ python -c "import sys; print(sys.path)"
 python -c "import torch; print('torch ok:', torch.__version__)"
 # - - - //
 
-python train.py --config configs/crossattn_feat.yaml
+python train.py --config configs/crossattnlate_feat.yaml
 
 

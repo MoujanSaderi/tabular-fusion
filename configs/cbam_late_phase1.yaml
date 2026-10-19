@@ -13,11 +13,15 @@
 # the best checkpoint of this one.
 
 paths:
-  train_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/train_split_tabular_only.csv
-  valid_csv: /gpfs/data/prostatelab/processed_data/csv/data_split/pj_splits/val_split_tabular_only.csv
+  train_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-14-train-split.csv'
+  valid_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-14-val-split.csv'
   test_csv: null
   data_dirs:
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_backfill_updated_series_20260727
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_2024_data_20250408
     - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_filtered_20240212
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_4355848
+    - /gpfs/data/prostatelab/processed_data/h5/t2_dwi_4304779
   dce_dirs: []
   extra_valid_csv: null
 
@@ -59,8 +63,8 @@ data:
   pirads_cutoff: 3
   mask_prostate: False
   normalize: true
-  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/2026-10-07-tabular-data-onehotnotpirads-some-lesion-level-fixed-prior-biopsy.csv'
-  tabular_dims: 28
+  tabular_csv: '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-15-train-val-tabular-v1.csv'
+  tabular_dims: 24
   add_missing_indicator: True
 
 hyperparameters:
@@ -73,26 +77,26 @@ hyperparameters:
 
 model_weights:
   save_weights: True
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cbam_late_phase1_v2
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/cbam_late_phase1_v2
   load_weights: True
   # TODO: the best checkpoint of the CBAM run (configs/cbam.yaml), e.g.
   # /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cbam_pjsplits_v1/cbam-pjsplits-v1/cbam_epoch=XX_best_val_pirads_auc=0.XXX.ckpt
-  model_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cbam_pjsplits_v1/cbam-pjsplits-v1/cbam_epoch=12_best_val_pirads_auc=0.877.ckpt'
+  model_ckpt: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/cbam_v1/cbam_v1/cbam_epoch=03_best_val_pirads_auc=0.872.ckpt
   disable_gradient: False
   # The clinical encoder is loaded from model_ckpt (what the gates were trained
   # with); this one is only checked against it.
-  clinical_ckpt: '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_pjsplits_clinical_missing_v1/clinical_mlp_epoch=14_best_val_pirads_auc=0.851.ckpt'
+  clinical_ckpt: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output-clean/clinical_mlp_v1/clinical_mlp_v1/clinical_mlp_epoch=26_best_val_pirads_auc=0.848.ckpt
 
 logging:
   log_run: True
-  project_name: lakshita_multimodal
-  run_name: cbam-late-phase1-v2
+  project_name: tabular_fusion
+  run_name: cbam_late_phase1_v2
   plot_roc: False
   plot_confusion_matrix: False
   plot_pirads_breakdown: False
 
 debugging:
   debug: False
-  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output/cbam-late-phase1-v2
+  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/cbam_late_phase1_v2
   max_test_volumes: -1
   compute_gradcam: False
