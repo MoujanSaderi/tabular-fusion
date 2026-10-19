@@ -285,7 +285,7 @@ def main():
     if config["data"].get("tabular_csv"):
         n_features = train_dataset.num_tabular_features
         configured = config["data"].get("tabular_dims")
-        if configured is not None and configured != n_features:
+        if configured is not None and configured != n_features  - int(config["data"]["add_missing_indicator"]):
             raise ValueError(
                 f"{config['data']['tabular_csv']} has {n_features} feature columns "
                 f"(excluding AccessionNumber), but data.tabular_dims is {configured}. "
