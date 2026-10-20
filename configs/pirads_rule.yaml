@@ -63,7 +63,7 @@ hyperparameters:
 
 model_weights:
   save_weights: False
-  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/pirads_rule_ge4
+  save_weights_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/preds_pirads_score_val
   load_weights: False
   model_ckpt: null
   disable_gradient: False
@@ -79,6 +79,6 @@ logging:
 
 debugging:
   debug: False
-  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/pirads_rule_ge4
+  preds_dir: /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/preds_pirads_score_val
   max_test_volumes: -1
   compute_gradcam: False

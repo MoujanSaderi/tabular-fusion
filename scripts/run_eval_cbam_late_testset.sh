@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name eval_cbam_v1
+#SBATCH --job-name eval_cbam_late_testset_v1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
-#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
+#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs_clean/job-%j-%x.log
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks-per-node=1
@@ -31,8 +31,10 @@ python -c "import torch; print('torch ok:', torch.__version__)"
 
 python eval.py \
         --num-workers 2 \
-        --config configs/cbam.yaml \
-        --ckpt 'output/cbam_pjsplits_v1/cbam-pjsplits-v1/cbam_epoch=12_best_val_pirads_auc=0.877.ckpt' \
-        --out output/eval_pjsplit_val/preds_val_cbam.csv
+        --config configs/cbam_late_phase2.yaml \
+        --ckpt '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/cbam_late_phase2_v1/cbam_late_phase1_v2/cbam_late_epoch=00_best_val_pirads_auc=0.872.ckpt' \
+        --val-csv '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-14-test-split.csv' \
+        --tabular-csv '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-15-test-tabular-v1.csv' \
+        --out ouput_clean/eval/preds_cbam_late_test.csv
 
 

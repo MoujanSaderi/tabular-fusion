@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name eval_latefusion_pjsplits_clinical_missing_v1
+#SBATCH --job-name eval_crossattnlate_testset_v1
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=moujan.saderi@nyulangone.org
-#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs/job-%j-%x.log
+#SBATCH --output /gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/script_logs_clean/job-%j-%x.log
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=1
 #SBATCH --ntasks-per-node=1
@@ -31,8 +31,10 @@ python -c "import torch; print('torch ok:', torch.__version__)"
 
 python eval.py \
         --num-workers 2 \
-        --config configs/latefusion_flat.yaml \
-        --ckpt 'output/latefusion_pjsplits_v1/latefusion_pjsplits_v1/latefusion_flat_epoch=07_best_val_pirads_auc=0.877.ckpt' \
-        --out output/eval_pjsplit_val/preds_val_latefusion.csv
+        --config configs/crossattnlate_feat.yaml \
+        --ckpt '/gpfs/data/johnsonplab/moujan/code/tabular-data-fusion/tabular-fusion/output_clean/xattn_feat_late_v1/xattn_feat_late_v1/crossattn_late_feat_epoch=02_best_val_pirads_auc=0.875.ckpt' \
+        --val-csv '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-14-test-split.csv' \
+        --tabular-csv '/gpfs/data/johnsonplab/moujan/prostate-dataset/tabular-data/new-splits/2026-10-15-test-tabular-v1.csv' \
+        --out ouput_clean/eval/preds_crossattnlate_test.csv
 
 
